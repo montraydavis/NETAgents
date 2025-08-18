@@ -320,7 +320,7 @@ namespace SmolConv.Tools
             var modelName = ModelId.Split('/').Length > 1 ? ModelId.Split('/')[1] : ModelId;
 
             // Models that don't support stop parameter (based on Python implementation)
-            var unsupportedPattern = @"^(o3[-\d]*|o4-mini[-\d]*|gpt-5(-mini|-nano)?[-\d]*)$";
+            var unsupportedPattern = @"^(o3[-\d]*|o4-mini[-\d]*|gpt-4.1(-mini|-nano)?[-\d]*)$";
             return !System.Text.RegularExpressions.Regex.IsMatch(modelName, unsupportedPattern);
         }
     }

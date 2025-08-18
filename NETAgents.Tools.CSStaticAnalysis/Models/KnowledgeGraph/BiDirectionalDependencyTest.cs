@@ -1,6 +1,4 @@
-using MCPCSharpRelevancy.Models;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace MCPCSharpRelevancy.Models.Tests
 {

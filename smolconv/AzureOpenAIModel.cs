@@ -1,15 +1,14 @@
 using Azure.AI.OpenAI;
-using Azure;
-using Azure.Core;
 using OpenAI.Chat;
-using SmolConv.Core;
 using SmolConv.Models;
 using SmolConv.Tools;
 using System.Text.Json;
 using ChatMessage = SmolConv.Models.ChatMessage;
 using System.ClientModel;
+using System.Security.Cryptography;
+using System.Text;
 
-namespace SmolConv.Exceptions
+namespace SmolConv.Inference
 {
 
 
@@ -19,6 +18,8 @@ namespace SmolConv.Exceptions
         private readonly ChatClient _chatClient;
         private readonly string _modelId;
         private readonly string _endpoint;
+        private readonly string _cacheDirectory;
+        private readonly string _cacheSalt;
 
         public AzureOpenAIModel(string modelId, string endpoint, string apiKey) : base()
         {
@@ -34,12 +35,35 @@ namespace SmolConv.Exceptions
             // Get chat client for the specific deployment
             _chatClient = _azureClient.GetChatClient(modelId);
             ModelId = modelId;
+
+            // Initialize cache directory and salt
+            _cacheDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "smolconv",
+                ".cache"
+            );
+            _cacheSalt = $"{modelId}_{endpoint}"; // Use model and endpoint as salt
+            
+            // Ensure cache directory exists
+            Directory.CreateDirectory(_cacheDirectory);
         }
 
-        public override async Task<ChatMessage> Generate(List<ChatMessage> messages, ModelCompletionOptions? options = null)
+        public override async Task<ChatMessage> GenerateAsync(List<ChatMessage> messages, ModelCompletionOptions? options = null,
+                                                       CancellationToken cancellationToken = default)
         {
             try
             {
+                // Generate cache key
+                var cacheKey = GenerateCacheKey(messages, options);
+                var cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
+
+                // Try to load from cache first
+                var cachedResponse = LoadFromCache(cacheFilePath);
+                if (cachedResponse != null)
+                {
+                    return cachedResponse;
+                }
+
                 // Convert smolagents messages to Azure OpenAI format
                 var azureMessages = ConvertToAzureOpenAIMessages(messages);
 
@@ -100,15 +124,183 @@ namespace SmolConv.Exceptions
                 }
 
                 // Call Azure OpenAI API
-                var completion = await _chatClient.CompleteChatAsync(azureMessages, completionOptions);
+                var completion = await _chatClient.CompleteChatAsync(azureMessages, completionOptions, cancellationToken);
 
                 // Convert response back to smolagents format
-                return ConvertFromAzureOpenAIResponse(completion);
+                var response = ConvertFromAzureOpenAIResponse(completion);
+
+                // Save to cache
+                SaveToCache(cacheFilePath, response);
+
+                return response;
             }
             catch (Exception ex)
             {
                 throw new Exception($"Error generating Azure OpenAI response: {ex.Message}", ex);
             }
+        }
+
+        public override async Task<ChatMessage> Generate(List<ChatMessage> messages, ModelCompletionOptions? options = null)
+        {
+            return await GenerateAsync(messages, options);
+        }
+
+        public string GenerateCacheKey(List<ChatMessage> messages, ModelCompletionOptions? options)
+        {
+            // Create a deterministic string representation of the request
+            var requestData = new
+            {
+                ModelId = _modelId,
+                Messages = messages.Select(m => new
+                {
+                    Role = m.Role.ToString(),
+                    Content = m.Content?.ToString() ?? m.ContentString ?? "",
+                    ToolCalls = m.ToolCalls?.Select(tc => new
+                    {
+                        Id = tc.Id,
+                        Type = tc.Type,
+                        Function = new
+                        {
+                            Name = tc.Function.Name,
+                            Arguments = tc.Function.Arguments
+                        }
+                    }).ToList()
+                }).ToList(),
+                Options = options != null ? new
+                {
+                    StopSequences = options.StopSequences,
+                    ResponseFormat = options.ResponseFormat,
+                    ToolChoice = options.ToolChoice?.ToString(),
+                    ToolsToCallFrom = options.ToolsToCallFrom?.Select(t => t.Name).ToList()
+                } : null
+            };
+
+            var jsonString = JsonSerializer.Serialize(requestData, new JsonSerializerOptions
+            {
+                WriteIndented = false,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+
+            // Combine with salt and generate SHA256 hash
+            var saltedData = $"{_cacheSalt}:{jsonString}";
+            using var sha256 = SHA256.Create();
+            var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(saltedData));
+            return Convert.ToHexString(hashBytes).ToLower();
+        }
+
+        private ChatMessage? LoadFromCache(string cacheFilePath)
+        {
+            try
+            {
+                if (!File.Exists(cacheFilePath))
+                    return null;
+
+                var jsonContent = File.ReadAllText(cacheFilePath);
+                var cacheData = JsonSerializer.Deserialize<CacheData>(jsonContent);
+
+                if (cacheData == null)
+                    return null;
+
+                // Check if cache is still valid (optional: add TTL logic here)
+                if (cacheData.ExpiresAt.HasValue && DateTime.UtcNow > cacheData.ExpiresAt.Value)
+                {
+                    File.Delete(cacheFilePath);
+                    return null;
+                }
+
+                // Reconstruct ChatMessage from cache
+                var toolCalls = cacheData.ToolCalls?.Select(tc => new ChatMessageToolCall(
+                    new ChatMessageToolCallFunction(tc.Function.Name, tc.Function.Arguments),
+                    tc.Id,
+                    tc.Type
+                )).ToList();
+
+                var tokenUsage = cacheData.TokenUsage != null 
+                    ? new TokenUsage(cacheData.TokenUsage.InputTokens, cacheData.TokenUsage.OutputTokens)
+                    : null;
+
+                return new ChatMessage(cacheData.Role, cacheData.Content, cacheData.Content, toolCalls)
+                {
+                    TokenUsage = tokenUsage
+                };
+            }
+            catch (Exception ex)
+            {
+                // Log cache loading error and continue without cache
+                Console.WriteLine($"Failed to load from cache: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void SaveToCache(string cacheFilePath, ChatMessage response)
+        {
+            try
+            {
+                var cacheData = new CacheData
+                {
+                    Role = response.Role,
+                    Content = response.Content?.ToString() ?? response.ContentString ?? "",
+                    ToolCalls = response.ToolCalls?.Select(tc => new CachedToolCall
+                    {
+                        Id = tc.Id,
+                        Type = tc.Type,
+                        Function = new CachedToolCallFunction
+                        {
+                            Name = tc.Function.Name,
+                            Arguments = tc.Function.Arguments
+                        }
+                    }).ToList(),
+                    TokenUsage = response.TokenUsage != null ? new CachedTokenUsage
+                    {
+                        InputTokens = response.TokenUsage.InputTokens,
+                        OutputTokens = response.TokenUsage.OutputTokens
+                    } : null,
+                    CachedAt = DateTime.UtcNow,
+                    ExpiresAt = DateTime.UtcNow.AddDays(7) // Cache for 7 days by default
+                };
+
+                var jsonContent = JsonSerializer.Serialize(cacheData, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+
+                File.WriteAllText(cacheFilePath, jsonContent);
+            }
+            catch (Exception ex)
+            {
+                // Log cache saving error but don't fail the request
+                Console.WriteLine($"Failed to save to cache: {ex.Message}");
+            }
+        }
+
+        // Cache data classes for JSON serialization
+        private class CacheData
+        {
+            public MessageRole Role { get; set; }
+            public string Content { get; set; } = "";
+            public List<CachedToolCall>? ToolCalls { get; set; }
+            public CachedTokenUsage? TokenUsage { get; set; }
+            public DateTime CachedAt { get; set; }
+            public DateTime? ExpiresAt { get; set; }
+        }
+
+        private class CachedToolCall
+        {
+            public string Id { get; set; } = "";
+            public string Type { get; set; } = "";
+            public CachedToolCallFunction Function { get; set; } = new();
+        }
+
+        private class CachedToolCallFunction
+        {
+            public string Name { get; set; } = "";
+            public object? Arguments { get; set; }
+        }
+
+        private class CachedTokenUsage
+        {
+            public int InputTokens { get; set; }
+            public int OutputTokens { get; set; }
         }
 
         private List<OpenAI.Chat.ChatMessage> ConvertToAzureOpenAIMessages(List<ChatMessage> messages)
@@ -462,7 +654,109 @@ namespace SmolConv.Exceptions
             result["model_type"] = "AzureOpenAIModel";
             result["endpoint"] = _endpoint;
             result["api_key"] = "[REDACTED]"; // Don't expose API key
+            result["cache_directory"] = _cacheDirectory;
+            result["cache_enabled"] = true;
             return result;
+        }
+
+        /// <summary>
+        /// Clears all cached responses for this model
+        /// </summary>
+        public void ClearCache()
+        {
+            try
+            {
+                if (Directory.Exists(_cacheDirectory))
+                {
+                    var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+                    foreach (var file in cacheFiles)
+                    {
+                        File.Delete(file);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to clear cache: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Gets cache statistics
+        /// </summary>
+        /// <returns>Cache statistics including file count and total size</returns>
+        public Dictionary<string, object> GetCacheStats()
+        {
+            var stats = new Dictionary<string, object>();
+            
+            try
+            {
+                if (Directory.Exists(_cacheDirectory))
+                {
+                    var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+                    var totalSize = cacheFiles.Sum(file => new FileInfo(file).Length);
+                    
+                    stats["file_count"] = cacheFiles.Length;
+                    stats["total_size_bytes"] = totalSize;
+                    stats["total_size_mb"] = Math.Round(totalSize / (1024.0 * 1024.0), 2);
+                    stats["cache_directory"] = _cacheDirectory;
+                }
+                else
+                {
+                    stats["file_count"] = 0;
+                    stats["total_size_bytes"] = 0;
+                    stats["total_size_mb"] = 0.0;
+                    stats["cache_directory"] = _cacheDirectory;
+                }
+            }
+            catch (Exception ex)
+            {
+                stats["error"] = ex.Message;
+            }
+            
+            return stats;
+        }
+
+        /// <summary>
+        /// Removes expired cache entries
+        /// </summary>
+        public void CleanupExpiredCache()
+        {
+            try
+            {
+                if (!Directory.Exists(_cacheDirectory))
+                    return;
+
+                var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+                var removedCount = 0;
+
+                foreach (var file in cacheFiles)
+                {
+                    try
+                    {
+                        var jsonContent = File.ReadAllText(file);
+                        var cacheData = JsonSerializer.Deserialize<CacheData>(jsonContent);
+
+                        if (cacheData?.ExpiresAt.HasValue == true && DateTime.UtcNow > cacheData.ExpiresAt.Value)
+                        {
+                            File.Delete(file);
+                            removedCount++;
+                        }
+                    }
+                    catch
+                    {
+                        // If we can't read the file, delete it as it might be corrupted
+                        File.Delete(file);
+                        removedCount++;
+                    }
+                }
+
+                Console.WriteLine($"Cleaned up {removedCount} expired cache entries");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to cleanup expired cache: {ex.Message}");
+            }
         }
     }
 }

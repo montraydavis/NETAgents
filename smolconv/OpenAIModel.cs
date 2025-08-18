@@ -1,5 +1,4 @@
 using OpenAI.Chat;
-using SmolConv.Core;
 using SmolConv.Models;
 using SmolConv.Tools;
 using System.Text.Json;
