@@ -204,15 +204,4 @@ namespace MCPCSharpRelevancy.Models
             return $"{this.Name} ({this.Project.Name}) - {this.Dependencies.Count} deps, {this.Dependents.Count} dependents";
         }
     }
-
-    /// <summary>
-    /// Represents member information for source analysis
-    /// </summary>
-    public class SourceMemberInfo
-    {
-        public string Name { get; set; } = string.Empty;
-        public string Kind { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-        public bool IsStatic { get; set; }
-    }
 }
