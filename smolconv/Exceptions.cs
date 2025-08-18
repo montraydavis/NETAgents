@@ -179,12 +179,30 @@ namespace SmolConv.Exceptions
     public class AgentToolExecutionError : AgentExecutionError
     {
         /// <summary>
+        /// Gets the tool name
+        /// </summary>
+        public string ToolName { get; }
+
+        /// <summary>
+        /// Gets the arguments that were passed to the tool
+        /// </summary>
+        public object? Arguments { get; }
+
+        /// <summary>
+        /// Gets whether this is a managed agent
+        /// </summary>
+        public bool IsManagedAgent { get; }
+
+        /// <summary>
         /// Initializes a new instance of the AgentToolExecutionError class
         /// </summary>
         /// <param name="message">The error message</param>
         /// <param name="logger">The logger to log the error to</param>
         public AgentToolExecutionError(string message, IAgentLogger logger) : base(message, logger)
         {
+            ToolName = "";
+            Arguments = null;
+            IsManagedAgent = false;
         }
 
         /// <summary>
@@ -196,6 +214,44 @@ namespace SmolConv.Exceptions
         public AgentToolExecutionError(string message, IAgentLogger logger, Exception innerException)
             : base(message, logger, innerException)
         {
+            ToolName = "";
+            Arguments = null;
+            IsManagedAgent = false;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the AgentToolExecutionError class with enhanced context
+        /// </summary>
+        /// <param name="message">The error message</param>
+        /// <param name="logger">The logger to log the error to</param>
+        /// <param name="toolName">The name of the tool that failed</param>
+        /// <param name="arguments">The arguments that were passed to the tool</param>
+        /// <param name="isManagedAgent">Whether this is a managed agent</param>
+        public AgentToolExecutionError(string message, IAgentLogger logger, string toolName = "", 
+                                     object? arguments = null, bool isManagedAgent = false) 
+            : base(message, logger)
+        {
+            ToolName = toolName;
+            Arguments = arguments;
+            IsManagedAgent = isManagedAgent;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the AgentToolExecutionError class with enhanced context
+        /// </summary>
+        /// <param name="message">The error message</param>
+        /// <param name="logger">The logger to log the error to</param>
+        /// <param name="innerException">The inner exception</param>
+        /// <param name="toolName">The name of the tool that failed</param>
+        /// <param name="arguments">The arguments that were passed to the tool</param>
+        /// <param name="isManagedAgent">Whether this is a managed agent</param>
+        public AgentToolExecutionError(string message, IAgentLogger logger, Exception innerException,
+                                     string toolName = "", object? arguments = null, bool isManagedAgent = false)
+            : base(message, logger, innerException)
+        {
+            ToolName = toolName;
+            Arguments = arguments;
+            IsManagedAgent = isManagedAgent;
         }
     }
 
@@ -253,7 +309,7 @@ namespace SmolConv.Exceptions
         public RateLimiter(double? requestsPerMinute = null)
         {
             _enabled = requestsPerMinute.HasValue;
-            _intervalSeconds = _enabled ? 60.0 / requestsPerMinute.Value : 0.0;
+            _intervalSeconds = _enabled ? 60.0 / requestsPerMinute!.Value : 0.0;
         }
 
         /// <summary>

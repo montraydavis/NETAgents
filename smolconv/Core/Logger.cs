@@ -138,7 +138,7 @@ namespace SmolConv.Core
         /// <param name="args">Positional arguments</param>
         /// <param name="kwargs">Named arguments</param>
         /// <returns>Pipeline output</returns>
-        protected override object? Forward(object[]? args, Dictionary<string, object>? kwargs)
+        protected override object? Forward(object?[]? args, Dictionary<string, object>? kwargs)
         {
             // Extract input data
             var inputData = ExtractInputData(args, kwargs);
@@ -161,7 +161,7 @@ namespace SmolConv.Core
         /// <param name="args">Positional arguments</param>
         /// <param name="kwargs">Named arguments</param>
         /// <returns>Extracted input data</returns>
-        protected virtual object ExtractInputData(object[]? args, Dictionary<string, object>? kwargs)
+        protected virtual object ExtractInputData(object?[]? args, Dictionary<string, object>? kwargs)
         {
             // Default implementation: return first arg or first kwarg value
             if (args?.Length > 0)

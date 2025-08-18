@@ -1,11 +1,31 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using MCPCSharpRelevancy.Services.Analysis;
+using SmolConv;
 using SmolConv.Core;
 using SmolConv.Exceptions;
 using SmolConv.Models;
+using System.Diagnostics;
 using System.Text.Json;
 
-var agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1", Environment.GetEnvironmentVariable("AOAI_ENDPOINT"), Environment.GetEnvironmentVariable("AOAI_API_KEY")));
+
+
+InitMSBuild.EnsureMSBuildLocated();
+
+var analyzer = new SolutionAnalyzer();
+var solution = await analyzer.LoadSolutionAsync("/Users/montraydavis/NETAgents/NETAgents.sln");
+var analysis = await analyzer.AnalyzeSolutionAsync(solution, false);
+
+var dependencies = analysis.Dependencies;
+var dependents = analysis.Dependents;
+
+var dd = analysis.Nodes;
+
+Debugger.Break();
+
+var endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT") ?? string.Empty;
+var apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY") ?? string.Empty;
+var agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1", endpoint, apiKey));
 
 Console.WriteLine("Starting agent execution...");
 var result = await agent.RunAsync("What is the capital of paris ?");

@@ -1,7 +1,9 @@
 using System.Text.Json;
+using System.Linq;
 using SmolConv.Exceptions;
 using SmolConv.Models;
 using SmolConv.Tools;
+using SmolConv.Core.Validation;
 
 namespace SmolConv.Core
 {
@@ -197,77 +199,149 @@ namespace SmolConv.Core
 
             _logger.Log($"Calling tool: '{toolName}' with arguments: {JsonSerializer.Serialize(arguments)}", LogLevel.Info);
 
-            // Check if tool exists
-            var availableTools = new Dictionary<string, BaseTool>();
-            foreach (var t in _tools) availableTools[t.Key] = t.Value;
-            foreach (var agent in _managedAgents) availableTools[agent.Key] = agent.Value;
-
+            // 1. Tool Discovery
+            var availableTools = GetAvailableTools();
             if (!availableTools.TryGetValue(toolName, out var tool))
             {
                 var availableToolNames = string.Join(", ", availableTools.Keys);
                 throw new AgentToolExecutionError(
-                    $"Unknown tool '{toolName}', should be one of: {availableToolNames}", _logger);
+                    $"Unknown tool '{toolName}', should be one of: {availableToolNames}", 
+                    _logger);
             }
 
             try
             {
-                // Convert arguments to the expected format
-                Dictionary<string, object>? kwargs = null;
-                if (arguments is Dictionary<string, object> dictArgs)
-                {
-                    kwargs = dictArgs;
-                }
-                else if (arguments != null)
-                {
-                    // Try to convert to dictionary if possible
-                    kwargs = new Dictionary<string, object> { ["input"] = arguments };
-                }
-                else
-                {
-                    // Provide default empty dictionary instead of null
-                    kwargs = new Dictionary<string, object>();
-                }
+                // 2. Argument Conversion
+                var processedArgs = ConvertAndProcessArguments(arguments);
+                
+                // 3. State Variable Validation
+                ValidateStateVariables(processedArgs);
+                
+                // 4. State Variable Substitution
+                processedArgs = (Dictionary<string, object>)SubstituteStateVariables(processedArgs);
 
-                // Substitute state variables
-                kwargs = SubstituteStateVariables(kwargs);
+                // 5. Tool Argument Validation
+                var nullableProcessedArgs = processedArgs?.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value) ?? new Dictionary<string, object?>();
+                Validation.ToolArgumentValidator.ValidateToolArguments(tool, nullableProcessedArgs);
 
-                // Validate tool arguments
-                ValidateToolArguments(tool, kwargs);
-
-                // Determine if this is a managed agent
+                // 6. Determine execution context
                 var isManagedAgent = _managedAgents.ContainsKey(toolName);
 
-                // Call tool with appropriate arguments
-                object? result;
-                if (isManagedAgent)
-                {
-                    result = await tool.CallAsync(null, kwargs, cancellationToken);
-                }
-                else
-                {
-                    // For regular tools, call with sanitize_inputs_outputs=True
-                    result = await tool.CallAsync(null, kwargs, true, cancellationToken);
-                }
+                // 7. Execute tool with proper sanitization
+                object? result = await ExecuteToolWithProperSanitization(tool, processedArgs ?? new Dictionary<string, object>(), 
+                                                                       isManagedAgent, cancellationToken);
 
-                var observation = result?.ToString() ?? "No output";
-                var isFinalAnswer = toolName == "final_answer";
-
-                _logger.Log($"Observations: {observation}", LogLevel.Info);
-
-                return new ToolOutput(
-                    id: toolCall.Id,
-                    output: result,
-                    isFinalAnswer: isFinalAnswer,
-                    observation: observation,
-                    toolCall: toolCall
-                );
+                // 8. Create tool output
+                return CreateToolOutput(toolCall, result, toolName);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new AgentToolCallError(ex.Message, _logger);
             }
             catch (Exception ex)
             {
-                var errorMsg = $"Error executing tool '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.Message}";
-                _logger.Log($"Tool execution error: {errorMsg}", LogLevel.Error);
-                throw new AgentToolExecutionError(errorMsg, _logger);
+                HandleToolExecutionError(ex, toolName, arguments, _managedAgents.ContainsKey(toolName));
+                throw; // This won't execute, but satisfies compiler
             }
+        }
+
+        /// <summary>
+        /// Gets all available tools and managed agents
+        /// </summary>
+        /// <returns>Dictionary of available tools</returns>
+        private Dictionary<string, BaseTool> GetAvailableTools()
+        {
+            var availableTools = new Dictionary<string, BaseTool>();
+            foreach (var t in _tools) availableTools[t.Key] = t.Value;
+            foreach (var agent in _managedAgents) availableTools[agent.Key] = agent.Value;
+            return availableTools;
+        }
+
+        /// <summary>
+        /// Converts and processes arguments to the expected format
+        /// </summary>
+        /// <param name="arguments">Raw arguments</param>
+        /// <returns>Processed arguments</returns>
+        private Dictionary<string, object> ConvertAndProcessArguments(object? arguments)
+        {
+            return arguments switch
+            {
+                Dictionary<string, object> dict => dict,
+                null => new Dictionary<string, object>(),
+                _ => new Dictionary<string, object> { ["input"] = arguments }
+            };
+        }
+
+        /// <summary>
+        /// Executes a tool with proper sanitization based on context
+        /// </summary>
+        /// <param name="tool">The tool to execute</param>
+        /// <param name="kwargs">The arguments</param>
+        /// <param name="isManagedAgent">Whether this is a managed agent</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>The tool result</returns>
+        private async Task<object?> ExecuteToolWithProperSanitization(BaseTool tool, 
+                                                                    Dictionary<string, object> kwargs,
+                                                                    bool isManagedAgent, 
+                                                                    CancellationToken cancellationToken)
+        {
+            if (isManagedAgent)
+            {
+                // Managed agents don't use sanitization
+                return await tool.CallAsync(null, kwargs, false, cancellationToken);
+            }
+            else
+            {
+                // Regular tools use sanitization
+                return await tool.CallAsync(null, kwargs, true, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Creates a tool output from the execution result
+        /// </summary>
+        /// <param name="toolCall">The original tool call</param>
+        /// <param name="result">The execution result</param>
+        /// <param name="toolName">The tool name</param>
+        /// <returns>Tool output</returns>
+        private ToolOutput CreateToolOutput(ToolCall toolCall, object? result, string toolName)
+        {
+            var observation = result?.ToString() ?? "No output";
+            var isFinalAnswer = toolName == "final_answer";
+
+            _logger.Log($"Observations: {observation}", LogLevel.Info);
+
+            return new ToolOutput(
+                id: toolCall.Id,
+                output: result,
+                isFinalAnswer: isFinalAnswer,
+                observation: observation,
+                toolCall: toolCall
+            );
+        }
+
+        /// <summary>
+        /// Handles tool execution errors with context-aware messages
+        /// </summary>
+        /// <param name="ex">The exception that occurred</param>
+        /// <param name="toolName">The tool name</param>
+        /// <param name="arguments">The arguments that were passed</param>
+        /// <param name="isManagedAgent">Whether this is a managed agent</param>
+        private void HandleToolExecutionError(Exception ex, string toolName, object? arguments, bool isManagedAgent)
+        {
+            string errorMsg;
+            if (isManagedAgent)
+            {
+                errorMsg = $"Error executing request to team member '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.Message}\n" +
+                          "Please try again or request to another team member";
+            }
+            else
+            {
+                errorMsg = $"Error executing tool '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.GetType().Name}: {ex.Message}\n" +
+                          "Please try again or use another tool";
+            }
+            
+            throw new AgentToolExecutionError(errorMsg, _logger, toolName, arguments, isManagedAgent);
         }
 
         /// <summary>
@@ -300,37 +374,136 @@ namespace SmolConv.Core
             return result;
         }
 
-        public override object? Call(object[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
+        public override object? Call(object?[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
         {
             throw new NotImplementedException();
         }
 
         /// <summary>
-        /// Substitute state variables in arguments
+        /// Substitute state variables in arguments with enhanced support for nested structures
         /// </summary>
         /// <param name="arguments">Arguments to substitute</param>
         /// <returns>Arguments with state variables substituted</returns>
-        protected virtual Dictionary<string, object> SubstituteStateVariables(Dictionary<string, object> arguments)
+        public virtual object SubstituteStateVariables(object arguments)
         {
-            return arguments.ToDictionary(
-                kvp => kvp.Key,
-                kvp => kvp.Value is string str && State.ContainsKey(str) ? State[str] : kvp.Value
-            );
+            return arguments switch
+            {
+                Dictionary<string, object> dict => SubstituteDictionary(dict),
+                string str when State.ContainsKey(str) => State[str],
+                string str => str,
+                List<object> list => list.Select(SubstituteStateVariables).ToList(),
+                Array arr => arr.Cast<object>().Select(SubstituteStateVariables).ToArray(),
+                IEnumerable<object> enumerable => enumerable.Select(SubstituteStateVariables).ToArray(),
+                _ => arguments
+            };
         }
 
         /// <summary>
-        /// Validate tool arguments against tool's input schema
+        /// Substitute state variables in a dictionary
         /// </summary>
-        /// <param name="tool">Tool to validate arguments for</param>
-        /// <param name="arguments">Arguments to validate</param>
-        protected virtual void ValidateToolArguments(BaseTool tool, object arguments)
+        /// <param name="dict">Dictionary to substitute</param>
+        /// <returns>Dictionary with state variables substituted</returns>
+        private Dictionary<string, object> SubstituteDictionary(Dictionary<string, object> dict)
         {
-            // Basic validation - in a full implementation, this would check argument types, required parameters, etc.
-            // For now, we'll just ensure arguments is not null for tools that expect them
-            if (arguments == null && tool is Tool t && t.Inputs.Count > 0)
+            var result = new Dictionary<string, object>();
+            foreach (var kvp in dict)
             {
-                throw new ArgumentException("Tool requires arguments but none were provided");
+                result[kvp.Key] = SubstituteStateVariables(kvp.Value);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Support for non-dictionary arguments
+        /// </summary>
+        /// <param name="arguments">Arguments to substitute</param>
+        /// <returns>Arguments with state variables substituted</returns>
+        protected virtual object SubstituteStateVariablesForAnyType(object arguments)
+        {
+            if (arguments is string str)
+                return State.ContainsKey(str) ? State[str] : str;
+            
+            if (arguments is Dictionary<string, object> dict)
+                return SubstituteDictionary(dict);
+            
+            return arguments;
+        }
+
+        /// <summary>
+        /// Validates state variables referenced in arguments
+        /// </summary>
+        /// <param name="arguments">Arguments to validate</param>
+        public virtual void ValidateStateVariables(object arguments)
+        {
+            var referencedVars = ExtractStateVariableReferences(arguments);
+            var missingVars = referencedVars.Where(v => !State.ContainsKey(v)).ToList();
+            
+            if (missingVars.Any())
+            {
+                throw new ArgumentException(
+                    $"Referenced state variables not found: {string.Join(", ", missingVars)}");
             }
         }
+
+        /// <summary>
+        /// Extracts state variable references from arguments
+        /// </summary>
+        /// <param name="obj">Object to extract references from</param>
+        /// <returns>List of referenced state variable names</returns>
+        private List<string> ExtractStateVariableReferences(object obj)
+        {
+            var references = new List<string>();
+            
+            switch (obj)
+            {
+                case string str:
+                    // Only consider strings that look like state variable references
+                    // (e.g., contain underscores, are not empty, etc.)
+                    if (IsStateVariableReference(str))
+                    {
+                        references.Add(str);
+                    }
+                    break;
+                case Dictionary<string, object> dict:
+                    foreach (var value in dict.Values)
+                        references.AddRange(ExtractStateVariableReferences(value));
+                    break;
+                case IEnumerable<object> enumerable:
+                    foreach (var item in enumerable)
+                        references.AddRange(ExtractStateVariableReferences(item));
+                    break;
+            }
+            
+            return references;
+        }
+
+        /// <summary>
+        /// Determines if a string looks like a state variable reference
+        /// </summary>
+        /// <param name="str">String to check</param>
+        /// <returns>True if it looks like a state variable reference</returns>
+        private bool IsStateVariableReference(string str)
+        {
+            // Simple heuristic: state variables typically contain underscores or are camelCase
+            return !string.IsNullOrEmpty(str) && 
+                   (str.Contains('_') || 
+                    (str.Length > 1 && char.IsLower(str[0]) && str.Any(c => char.IsUpper(c))));
+        }
+
+        /// <summary>
+        /// Handles state variable specific errors
+        /// </summary>
+        /// <param name="ex">The exception that occurred</param>
+        /// <param name="toolName">The tool name</param>
+        /// <param name="arguments">The arguments that were passed</param>
+        private void HandleStateVariableError(Exception ex, string toolName, object arguments)
+        {
+            var errorMsg = $"State variable error in tool '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.Message}\n" +
+                          "Please ensure all referenced state variables are defined";
+            
+            throw new AgentToolCallError(errorMsg, _logger);
+        }
+
+
     }
 }

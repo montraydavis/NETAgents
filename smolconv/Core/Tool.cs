@@ -48,38 +48,28 @@ namespace SmolConv.Core
         /// <param name="kwargs">Named arguments</param>
         /// <param name="sanitizeInputsOutputs">Whether to sanitize inputs and outputs</param>
         /// <returns>The result of the tool execution</returns>
-        public override object? Call(object[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
+        public override object? Call(object?[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
         {
             if (!_isInitialized)
             {
                 Setup();
             }
 
-            // Handle case where args contains a single dictionary that should be kwargs
-            if (args?.Length == 1 && (kwargs == null || kwargs.Count == 0) && args[0] is Dictionary<string, object> potentialKwargs)
-            {
-                // Check if all dictionary keys match our input parameters
-                if (potentialKwargs.Keys.All(key => Inputs.ContainsKey(key)))
-                {
-                    args = null;
-                    kwargs = potentialKwargs;
-                }
-            }
+            // Enhanced argument conversion logic
+            kwargs = ConvertArgumentsToKwargs(args, kwargs);
 
-            // Validate arguments
-            var validation = ValidateArguments(args, kwargs);
-            if (!validation.IsValid)
-            {
-                throw new ArgumentException($"Tool validation failed: {string.Join(", ", validation.Errors)}");
-            }
+            // Comprehensive validation
+            var nullableKwargs = kwargs?.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value) ?? new Dictionary<string, object?>();
+            Validation.ToolArgumentValidator.ValidateToolArguments(this, nullableKwargs);
 
             // Sanitize inputs if requested
             if (sanitizeInputsOutputs)
             {
-                (args, kwargs) = AgentTypeMapping.HandleAgentInputTypes(args, kwargs);
+                var handled = AgentTypeMapping.HandleAgentInputTypes(args ?? Array.Empty<object?>(), kwargs ?? new Dictionary<string, object>());
+                args = handled.args;
+                kwargs = handled.kwargs;
             }
 
-            // Execute the tool
             var result = Forward(args, kwargs);
 
             // Sanitize outputs if requested
@@ -91,9 +81,30 @@ namespace SmolConv.Core
             return result;
         }
 
+        /// <summary>
+        /// Converts arguments to kwargs format with enhanced logic
+        /// </summary>
+        /// <param name="args">Positional arguments</param>
+        /// <param name="kwargs">Named arguments</param>
+        /// <returns>Converted kwargs</returns>
+        private Dictionary<string, object> ConvertArgumentsToKwargs(object?[]? args, Dictionary<string, object>? kwargs)
+        {
+            // Handle single dictionary argument conversion
+            if (args?.Length == 1 && (kwargs == null || kwargs.Count == 0) && 
+                args[0] is Dictionary<string, object> potentialKwargs)
+            {
+                if (potentialKwargs.Keys.All(key => Inputs.ContainsKey(key)))
+                {
+                    return potentialKwargs;
+                }
+            }
+
+            return kwargs ?? new Dictionary<string, object>();
+        }
 
 
-        public virtual object? InvokeCall(object[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
+
+        public virtual object? InvokeCall(object?[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
         {
             return Call(args, kwargs, sanitizeInputsOutputs);
         }
@@ -104,7 +115,7 @@ namespace SmolConv.Core
         /// <param name="args">Positional arguments</param>
         /// <param name="kwargs">Named arguments</param>
         /// <returns>The tool execution result</returns>
-        protected abstract object? Forward(object[]? args, Dictionary<string, object>? kwargs);
+        protected abstract object? Forward(object?[]? args, Dictionary<string, object>? kwargs);
 
         /// <summary>
         /// Setup method called before first use - override for expensive initialization

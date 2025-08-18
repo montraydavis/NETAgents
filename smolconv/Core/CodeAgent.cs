@@ -325,7 +325,7 @@ namespace SmolConv.Core
             base.Dispose();
         }
 
-        public override object? Call(object[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
+        public override object? Call(object?[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false)
         {
             return null;
         }

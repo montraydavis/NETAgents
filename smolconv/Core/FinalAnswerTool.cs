@@ -38,7 +38,7 @@ namespace SmolConv.Core
         /// <param name="args">Positional arguments</param>
         /// <param name="kwargs">Named arguments</param>
         /// <returns>The final answer</returns>
-        protected override object? Forward(object[]? args, Dictionary<string, object>? kwargs)
+        protected override object? Forward(object?[]? args, Dictionary<string, object>? kwargs)
         {
             if (kwargs?.TryGetValue("answer", out var answer) == true)
             {

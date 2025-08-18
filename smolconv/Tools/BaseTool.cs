@@ -26,7 +26,7 @@ namespace SmolConv.Tools
         /// <param name="kwargs">Named arguments</param>
         /// <param name="sanitizeInputsOutputs">Whether to sanitize inputs and outputs</param>
         /// <returns>The result of the tool execution</returns>
-        public abstract object? Call(object[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false);
+        public abstract object? Call(object?[]? args = null, Dictionary<string, object>? kwargs = null, bool sanitizeInputsOutputs = false);
 
         /// <summary>
         /// Executes the tool with the provided arguments (async version)
@@ -35,7 +35,7 @@ namespace SmolConv.Tools
         /// <param name="kwargs">Named arguments</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>The result of the tool execution</returns>
-        public virtual Task<object?> CallAsync(object[]? args = null, Dictionary<string, object>? kwargs = null,
+        public virtual Task<object?> CallAsync(object?[]? args = null, Dictionary<string, object>? kwargs = null,
                                               CancellationToken cancellationToken = default)
         {
             return Task.FromResult(Call(args, kwargs));
@@ -49,7 +49,7 @@ namespace SmolConv.Tools
         /// <param name="sanitizeInputsOutputs">Whether to sanitize inputs and outputs</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>The result of the tool execution</returns>
-        public virtual Task<object?> CallAsync(object[]? args = null, Dictionary<string, object>? kwargs = null,
+        public virtual Task<object?> CallAsync(object?[]? args = null, Dictionary<string, object>? kwargs = null,
                                               bool sanitizeInputsOutputs = false,
                                               CancellationToken cancellationToken = default)
         {

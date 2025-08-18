@@ -11,6 +11,8 @@ using System.ClientModel;
 
 namespace SmolConv.Exceptions
 {
+
+
     public class AzureOpenAIModel : Model
     {
         private readonly AzureOpenAIClient _azureClient;
@@ -22,13 +24,13 @@ namespace SmolConv.Exceptions
         {
             _modelId = modelId;
             _endpoint = endpoint;
-            
+
             // Create Azure OpenAI client with API key authentication
             _azureClient = new AzureOpenAIClient(
                 new Uri(endpoint),
                 new ApiKeyCredential(apiKey)
             );
-            
+
             // Get chat client for the specific deployment
             _chatClient = _azureClient.GetChatClient(modelId);
             ModelId = modelId;
@@ -40,10 +42,10 @@ namespace SmolConv.Exceptions
             {
                 // Convert smolagents messages to Azure OpenAI format
                 var azureMessages = ConvertToAzureOpenAIMessages(messages);
-                
+
                 // Prepare completion options
                 var completionOptions = new ChatCompletionOptions();
-                
+
                 // Add tools if provided
                 if (options?.ToolsToCallFrom != null && options.ToolsToCallFrom.Count > 0)
                 {
@@ -56,7 +58,7 @@ namespace SmolConv.Exceptions
                         );
                         completionOptions.Tools.Add(chatTool);
                     }
-                    
+
                     // Set tool choice if specified
                     if (!string.IsNullOrEmpty(options.ToolChoice?.ToString() ?? null))
                     {
@@ -99,7 +101,7 @@ namespace SmolConv.Exceptions
 
                 // Call Azure OpenAI API
                 var completion = await _chatClient.CompleteChatAsync(azureMessages, completionOptions);
-                
+
                 // Convert response back to smolagents format
                 return ConvertFromAzureOpenAIResponse(completion);
             }
@@ -120,14 +122,14 @@ namespace SmolConv.Exceptions
                     case MessageRole.System:
                         result.Add(new SystemChatMessage(GetMessageContent(message)));
                         break;
-                        
+
                     case MessageRole.User:
                         result.Add(new UserChatMessage(GetMessageContent(message)));
                         break;
-                        
+
                     case MessageRole.Assistant:
                         var assistantMessage = new AssistantChatMessage(GetMessageContent(message));
-                        
+
                         // Add tool calls if present
                         if (message.ToolCalls != null && message.ToolCalls.Count > 0)
                         {
@@ -141,16 +143,16 @@ namespace SmolConv.Exceptions
                                 ));
                             }
                         }
-                        
+
                         result.Add(assistantMessage);
                         break;
-                        
+
                     case MessageRole.ToolCall:
                     case MessageRole.ToolResponse:
                         // For tool response messages, we need the tool call ID
                         var toolContent = GetMessageContent(message);
                         var toolCallId = ExtractToolCallIdFromContent(toolContent) ?? "unknown";
-                        
+
                         result.Add(new ToolChatMessage(toolCallId, toolContent));
                         break;
                 }
@@ -163,10 +165,10 @@ namespace SmolConv.Exceptions
         {
             if (message.Content is string content)
                 return content;
-            
+
             if (!string.IsNullOrEmpty(message.ContentString))
                 return message.ContentString;
-            
+
             // Handle complex content structures
             if (message.Content is object[] contentArray)
             {
@@ -180,7 +182,7 @@ namespace SmolConv.Exceptions
                 }
                 return string.Join(" ", textParts);
             }
-            
+
             return JsonSerializer.Serialize(message.Content);
         }
 
@@ -205,18 +207,18 @@ namespace SmolConv.Exceptions
             {
                 content = completion.Content[0].Text ?? "";
             }
-            
+
             List<ChatMessageToolCall>? toolCalls = null;
-            
+
             // Handle tool calls if present
             if (completion.ToolCalls != null && completion.ToolCalls.Count > 0)
             {
                 toolCalls = new List<ChatMessageToolCall>();
-                
+
                 foreach (var azureToolCall in completion.ToolCalls)
                 {
                     var arguments = ParseToolCallArguments(azureToolCall.FunctionArguments.ToString());
-                    
+
                     var fn = new ChatMessageToolCallFunction(azureToolCall.FunctionName, arguments);
 
                     toolCalls.Add(new ChatMessageToolCall(fn, azureToolCall.Id, "function"));
@@ -273,7 +275,7 @@ namespace SmolConv.Exceptions
                 }
 
                 properties[input.Key] = property;
-                
+
                 // Add to required if not optional
                 var isOptional = input.Value.ContainsKey("optional") && (bool)input.Value["optional"];
                 if (!isOptional)
@@ -321,10 +323,10 @@ namespace SmolConv.Exceptions
         private List<ChatMessageToolCall> ParseToolCallsFromContent(string content)
         {
             var toolCalls = new List<ChatMessageToolCall>();
-            
+
             // Look for various tool call patterns in the content
             // This is a fallback parser for models that don't support native tool calling
-            
+
             // Pattern 1: "invoke tool_name: arguments"
             if (content.Contains("invoke ") && content.Contains(":"))
             {
@@ -341,7 +343,7 @@ namespace SmolConv.Exceptions
                     }
                 }
             }
-            
+
             // Pattern 2: JSON tool call format
             if (content.Contains("\"type\": \"function\"") || content.Contains("tool_calls"))
             {
@@ -359,13 +361,13 @@ namespace SmolConv.Exceptions
                 // Parse "invoke final_answer: 'Hello, how are you?'"
                 var colonIndex = line.IndexOf(':');
                 if (colonIndex == -1) return null;
-                
+
                 var toolPart = line.Substring(7, colonIndex - 7).Trim(); // Remove "invoke "
                 var argsPart = line.Substring(colonIndex + 1).Trim();
-                
+
                 // Simple argument parsing - handle quoted strings
                 var arguments = new Dictionary<string, object>();
-                
+
                 if (argsPart.StartsWith("'") && argsPart.EndsWith("'"))
                 {
                     // Single quoted string
@@ -391,7 +393,7 @@ namespace SmolConv.Exceptions
                         arguments[GetDefaultArgumentName(toolPart)] = argsPart;
                     }
                 }
-                
+
                 return new ChatMessageToolCall(new ChatMessageToolCallFunction(toolPart, arguments), Guid.NewGuid().ToString(), "function");
             }
             catch
@@ -415,17 +417,17 @@ namespace SmolConv.Exceptions
         private List<ChatMessageToolCall> ParseJsonToolCalls(string content)
         {
             var toolCalls = new List<ChatMessageToolCall>();
-            
+
             try
             {
                 // Try to find and parse JSON structures that look like tool calls
                 var jsonStart = content.IndexOf('{');
                 var jsonEnd = content.LastIndexOf('}');
-                
+
                 if (jsonStart >= 0 && jsonEnd > jsonStart)
                 {
                     var jsonContent = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                    
+
                     // Try to parse as a single tool call or array of tool calls
                     try
                     {
@@ -450,7 +452,7 @@ namespace SmolConv.Exceptions
             {
                 // Ignore parsing errors
             }
-            
+
             return toolCalls;
         }
 
