@@ -1,6 +1,3 @@
-using System;
-using System.IO;
-
 namespace SmolConv.Models
 {
     public class AgentImage : AgentType

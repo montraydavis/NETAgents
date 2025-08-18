@@ -316,7 +316,7 @@ namespace SmolConv.Core
 
                             ValidateFinalAnswer(finalAnswer);
                             returnedFinalAnswer = true;
-                            actionStep = actionStep with { IsFinalAnswer = true };
+                            actionStep = actionStep with { IsFinalAnswer = true, ActionOutput = finalAnswer };
                         }
                     }
                 }
@@ -358,7 +358,18 @@ namespace SmolConv.Core
                 yield return finalStep;
             }
 
-            yield return new FinalAnswerStep(new object()); // Placeholder
+            // Find the actual final answer from memory steps
+            var actualFinalAnswer = new object();
+            foreach (var step in Memory.Steps)
+            {
+                if (step is ActionStep actionStep && actionStep.IsFinalAnswer && actionStep.ActionOutput != null)
+                {
+                    actualFinalAnswer = actionStep.ActionOutput;
+                    break;
+                }
+            }
+
+            yield return new FinalAnswerStep(actualFinalAnswer);
         }
 
 

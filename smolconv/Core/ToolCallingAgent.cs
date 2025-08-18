@@ -2,7 +2,6 @@ using System.Text.Json;
 using SmolConv.Exceptions;
 using SmolConv.Models;
 using SmolConv.Tools;
-using System.Linq;
 
 namespace SmolConv.Core
 {
@@ -22,6 +21,8 @@ namespace SmolConv.Core
 
         public override string Name => "ToolCallingAgent";
 
+        public override Dictionary<string, Dictionary<string, object>> Inputs => new Dictionary<string, Dictionary<string, object>>();
+
         /// <summary>
         /// Initializes a new instance of ToolCallingAgent
         /// </summary>
@@ -33,7 +34,7 @@ namespace SmolConv.Core
             bool streamOutputs = false,
             int? maxToolThreads = null,
             string? instructions = null,
-            int maxSteps = 20,
+            int maxSteps = 5,
             bool addBaseTools = false,
             LogLevel verbosityLevel = LogLevel.Info,
             List<MultiStepAgent>? managedAgents = null,

@@ -21,11 +21,6 @@ namespace SmolConv.Core
         public abstract string Description { get; }
 
         /// <summary>
-        /// Gets the input specifications
-        /// </summary>
-        public abstract Dictionary<string, Dictionary<string, object>> Inputs { get; }
-
-        /// <summary>
         /// Gets the output type
         /// </summary>
         public abstract string OutputType { get; }
@@ -244,7 +239,7 @@ namespace SmolConv.Core
         /// <returns>The JSON schema type string</returns>
         protected virtual string GetJsonSchemaType(object value)
         {
-            return value switch
+            var result = value switch
             {
                 null => "null",
                 bool => "boolean",
@@ -255,6 +250,28 @@ namespace SmolConv.Core
                 Dictionary<string, object> => "object",
                 AgentImage => "image",
                 AgentAudio => "audio",
+                System.Text.Json.JsonElement jsonElement => GetJsonElementSchemaType(jsonElement),
+                _ => "object"
+            };
+            
+            return result;
+        }
+
+        /// <summary>
+        /// Gets the JSON schema type for a JsonElement
+        /// </summary>
+        /// <param name="jsonElement">The JsonElement to get the type for</param>
+        /// <returns>The JSON schema type string</returns>
+        private string GetJsonElementSchemaType(System.Text.Json.JsonElement jsonElement)
+        {
+            return jsonElement.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => "string",
+                System.Text.Json.JsonValueKind.Number => jsonElement.TryGetInt64(out _) ? "integer" : "number",
+                System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False => "boolean",
+                System.Text.Json.JsonValueKind.Null => "null",
+                System.Text.Json.JsonValueKind.Array => "array",
+                System.Text.Json.JsonValueKind.Object => "object",
                 _ => "object"
             };
         }

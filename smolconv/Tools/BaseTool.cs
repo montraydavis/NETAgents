@@ -15,6 +15,11 @@ namespace SmolConv.Tools
         public abstract string Name { get; }
 
         /// <summary>
+        /// Gets the input specifications
+        /// </summary>
+        public abstract Dictionary<string, Dictionary<string, object>> Inputs { get; }
+
+        /// <summary>
         /// Executes the tool with the provided arguments
         /// </summary>
         /// <param name="args">Positional arguments</param>

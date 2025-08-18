@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
 namespace SmolConv.Models
 {
     // ===============================
@@ -57,14 +53,20 @@ namespace SmolConv.Models
             return (processedArgs, new Dictionary<string, object?>());
         }
 
-        public static (object?[] args, Dictionary<string, object?> kwargs) HandleAgentInputTypes(
+        public static (object?[] args, Dictionary<string, object> kwargs) HandleAgentInputTypes(
             object?[] args, 
-            Dictionary<string, object?> kwargs)
+            Dictionary<string, object> kwargs)
         {
-            var processedArgs = args.Select(arg => arg is AgentType agentType ? agentType.ToRaw() : arg).ToArray();
+            if (kwargs == null)
+            {
+                return (args ?? Array.Empty<object>(), new Dictionary<string, object>());
+            }
+            
+            var processedArgs = args?.Select(arg => arg is AgentType agentType ? agentType.ToRaw() : arg).ToArray() ?? Array.Empty<object>();
             var processedKwargs = kwargs.ToDictionary(
                 kvp => kvp.Key, 
                 kvp => kvp.Value is AgentType agentType ? agentType.ToRaw() : kvp.Value);
+            
             return (processedArgs, processedKwargs);
         }
     }

@@ -32,6 +32,8 @@ namespace SmolConv.Core
 
         public override string Name => "CodeAgent";
 
+        public override Dictionary<string, Dictionary<string, object>> Inputs => new Dictionary<string, Dictionary<string, object>>();
+
         /// <summary>
         /// Initializes a new instance of CodeAgent
         /// </summary>

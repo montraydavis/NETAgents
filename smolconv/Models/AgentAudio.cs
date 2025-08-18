@@ -1,7 +1,3 @@
-using System;
-using System.IO;
-using System.Net.Http;
-
 namespace SmolConv.Models
 {
     public class AgentAudio : AgentType
