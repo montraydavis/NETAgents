@@ -5,10 +5,10 @@ using SmolConv.Exceptions;
 using SmolConv.Models;
 using System.Text.Json;
 
-var agent = new ToolCallingAgent([], new OpenAIModel("gpt-4.1", ""));
+var agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1", Environment.GetEnvironmentVariable("AOAI_ENDPOINT"), Environment.GetEnvironmentVariable("AOAI_API_KEY")));
 
 Console.WriteLine("Starting agent execution...");
-var result = await agent.RunAsync("invoke final_answer: 'Hello, how are you?'");
+var result = await agent.RunAsync("What is the capital of paris ?");
 Console.WriteLine("Agent execution completed.");
 
 // Look for the final answer in the agent's memory steps
