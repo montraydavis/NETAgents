@@ -18,11 +18,14 @@ namespace SmolConv.Inference
         private readonly string _endpoint;
         private readonly string _cacheDirectory;
         private readonly string _cacheSalt;
+        private readonly IList<ChatMessage> _messageHistory;
 
         public AzureOpenAIModel(string modelId, string endpoint, string apiKey) : base(modelId: modelId)
         {
             _modelId = modelId;
             _endpoint = endpoint;
+
+            _messageHistory = new List<ChatMessage>();
 
             // Create Azure OpenAI client with API key authentication
             var azureClient = new AzureOpenAIClient(
@@ -40,7 +43,7 @@ namespace SmolConv.Inference
                 ".cache"
             );
             _cacheSalt = $"{_modelId}_{endpoint}"; // Use model and endpoint as salt
-            
+
             // Ensure cache directory exists
             Directory.CreateDirectory(_cacheDirectory);
         }
@@ -50,6 +53,12 @@ namespace SmolConv.Inference
         {
             try
             {
+                if(_messageHistory.Count > 6)
+                {
+                    _messageHistory.RemoveAt(0);
+                    _messageHistory.RemoveAt(0);
+                }
+
                 // Generate cache key
                 string cacheKey = GenerateCacheKey(messages, options);
                 string cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
@@ -59,11 +68,16 @@ namespace SmolConv.Inference
                 if (cachedResponse != null)
                 {
                     Debug.WriteLine($"Loaded from cache: {cacheFilePath}");
+                    foreach (ChatMessage message in messages)
+                    {
+                        _messageHistory.Add(message);
+                    }
+                    _messageHistory.Add(cachedResponse);
                     return cachedResponse;
                 }
 
                 // Convert smolagents messages to Azure OpenAI format
-                List<OpenAI.Chat.ChatMessage> azureMessages = ConvertToAzureOpenAIMessages(messages);
+                List<OpenAI.Chat.ChatMessage> azureMessages = ConvertToAzureOpenAIMessages((_messageHistory.Any() ? _messageHistory : messages).ToList());
 
                 // Prepare completion options
                 ChatCompletionOptions completionOptions = new ChatCompletionOptions();
@@ -129,6 +143,12 @@ namespace SmolConv.Inference
 
                 // Save to cache
                 SaveToCache(cacheFilePath, response);
+
+                foreach (ChatMessage message in messages)
+                {
+                    _messageHistory.Add(message);
+                }
+                _messageHistory.Add(response);
 
                 return response;
             }
@@ -213,7 +233,7 @@ namespace SmolConv.Inference
                     tc.Type
                 )).ToList();
 
-                TokenUsage? tokenUsage = cacheData.TokenUsage != null 
+                TokenUsage? tokenUsage = cacheData.TokenUsage != null
                     ? new TokenUsage(cacheData.TokenUsage.InputTokens, cacheData.TokenUsage.OutputTokens)
                     : null;
 
@@ -309,10 +329,10 @@ namespace SmolConv.Inference
                     return null;
                 // If it's AgentText, get the raw value
                 case SmolConv.Models.AgentText agentText:
-                {
-                    object? rawValue = agentText.ToRaw();
-                    return rawValue?.ToString();
-                }
+                    {
+                        object? rawValue = agentText.ToRaw();
+                        return rawValue?.ToString();
+                    }
                 default:
                     // For other types, use ToString()
                     return content.ToString();
@@ -685,7 +705,7 @@ namespace SmolConv.Inference
             try
             {
                 if (!Directory.Exists(_cacheDirectory)) return;
-                
+
                 string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
                 foreach (string file in cacheFiles)
                 {
@@ -705,14 +725,14 @@ namespace SmolConv.Inference
         public Dictionary<string, object> GetCacheStats()
         {
             Dictionary<string, object> stats = new Dictionary<string, object>();
-            
+
             try
             {
                 if (Directory.Exists(_cacheDirectory))
                 {
                     string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
                     long totalSize = cacheFiles.Sum(file => new FileInfo(file).Length);
-                    
+
                     stats["file_count"] = cacheFiles.Length;
                     stats["total_size_bytes"] = totalSize;
                     stats["total_size_mb"] = Math.Round(totalSize / (1024.0 * 1024.0), 2);
@@ -730,7 +750,7 @@ namespace SmolConv.Inference
             {
                 stats["error"] = ex.Message;
             }
-            
+
             return stats;
         }
 
