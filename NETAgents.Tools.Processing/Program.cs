@@ -1,8 +1,7 @@
 using NETAgents.Tools.Processing;
 using NETAgents.Tools.Processing.Services;
 using Microsoft.Extensions.Options;
-
-
+using NETAgents.Tools.Processing.Cache;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -11,16 +10,71 @@ builder.Services.Configure<ProcessingOptions>(
     builder.Configuration.GetSection(ProcessingOptions.SectionName));
 
 // Register processing options as singleton
-builder.Services.AddSingleton(sp => 
+builder.Services.AddSingleton(sp =>
     sp.GetRequiredService<IOptions<ProcessingOptions>>().Value);
 
 // Register services
-builder.Services.AddSingleton<IFileProcessorService, FileProcessorService>();
+builder.Services.AddSingleton<IMultiLevelFileProcessorService, MultiLevelFileProcessorService>();
 builder.Services.AddSingleton<IProcessingQueueService, ProcessingQueueService>();
 builder.Services.AddSingleton<IFileDiscoveryService, FileDiscoveryService>();
+builder.Services.AddSingleton<ICacheService, FileBasedCacheService>();
 
-// Register the worker service
-builder.Services.AddHostedService<Worker>();
+// Register the multi-level worker service
+builder.Services.AddHostedService<CachedMultiLevelWorker>();
 
 var host = builder.Build();
-host.Run();
+
+// Start the application
+await host.StartAsync();
+
+// Wait a bit for initial processing to complete
+Console.WriteLine("Application started. Waiting for initial file processing...");
+
+// Now check the cache after some processing has occurred
+var cacheService = host.Services.GetRequiredService<ICacheService>();
+var stats = await cacheService.GetStatisticsAsync();
+
+var asts = await cacheService.GetAllAstNodesAsync();
+var domains = await cacheService.GetAllDomainsAsync();
+
+var aa = asts.Items.ToArray();
+var dd = domains.Items.ToArray();
+
+Console.WriteLine($"Cache Statistics:");
+Console.WriteLine($"  Total Files: {stats.TotalFiles}");
+Console.WriteLine($"  Processed Files: {stats.ProcessedFiles}");
+Console.WriteLine($"  Failed Files: {stats.FailedFiles}");
+
+if (stats.ProcessedFiles > 0)
+{
+    Console.WriteLine("\nAccessing cached AST and Domain data...");
+
+    Console.WriteLine($"AST Nodes: {asts.TotalCount}");
+    Console.WriteLine($"Domains: {domains.TotalCount}");
+
+    if (asts.Items.Any())
+    {
+        Console.WriteLine("\nSample AST Nodes:");
+        foreach (var ast in asts.Items.Take(3))
+        {
+            Console.WriteLine($"  - {ast.Name} ({ast.Type}) in {ast.FilePath}");
+        }
+    }
+
+    if (domains.Items.Any())
+    {
+        Console.WriteLine("\nSample Domains:");
+        foreach (var domain in domains.Items.Take(3))
+        {
+            Console.WriteLine($"  - {domain.Name} ({domain.Reasoning})");
+        }
+    }
+}
+else
+{
+    Console.WriteLine("No files have been processed yet. The cache is empty.");
+    Console.WriteLine("Check your file discovery paths and ensure files are being found.");
+}
+
+// Keep the application running
+await host.RunAsync();

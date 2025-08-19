@@ -21,7 +21,7 @@ public class FileProcessorService : IFileProcessorService
         _options = options;
         
         _model = new AzureOpenAIModel(
-            "gpt-4.1-nano", 
+            "gpt-4.1", 
             Environment.GetEnvironmentVariable("AOAI_ENDPOINT") ?? string.Empty, 
             Environment.GetEnvironmentVariable("AOAI_API_KEY") ?? string.Empty
         );
