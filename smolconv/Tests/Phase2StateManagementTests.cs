@@ -366,7 +366,49 @@ namespace SmolConv.Tests
 
         public override Task<ChatMessage> Generate(List<ChatMessage> messages, ModelCompletionOptions? options = null)
         {
-            return Task.FromResult(new ChatMessage(MessageRole.Assistant, "Mock response", "Mock response"));
+            var lastMessage = messages.LastOrDefault();
+            var content = lastMessage?.Content?.ToString() ?? "";
+            
+            // Return appropriate mock response based on the prompt content
+            string response;
+            if (content.Contains("domain keywords") || content.Contains("DomainKeywords"))
+            {
+                response = @"{
+  ""domains"": [
+    {
+      ""name"": ""software-development"",
+      ""reasoning"": ""This file contains code analysis and processing logic typical of software development tools.""
+    },
+    {
+      ""name"": ""code-analysis"",
+      ""reasoning"": ""The content involves parsing, processing, and analyzing source code files.""
+    }
+  ]
+}";
+            }
+            else if (content.Contains("AST") || content.Contains("Abstract Syntax Tree"))
+            {
+                response = @"{
+  ""namespace"": ""MockNamespace"",
+  ""usings"": [""System"", ""System.Collections.Generic""],
+  ""classes"": [
+    {
+      ""name"": ""MockClass"",
+      ""modifiers"": [""public""],
+      ""baseTypes"": [],
+      ""attributes"": []
+    }
+  ],
+  ""interfaces"": [],
+  ""enums"": []
+}";
+            }
+            else
+            {
+                response = "Mock response";
+            }
+            
+            return Task.FromResult(new ChatMessage(MessageRole.Assistant, response, response));
         }
 
         public override ChatMessage ParseToolCalls(ChatMessage message)

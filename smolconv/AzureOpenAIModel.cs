@@ -156,7 +156,7 @@ namespace SmolConv.Inference
                 Messages = messages.Select(m => new
                 {
                     Role = m.Role.ToString(),
-                    Content = m.Content?.ToString() ?? m.ContentString ?? "",
+                    Content = GetContentAsString(m.Content) ?? m.ContentString ?? "",
                     ToolCalls = m.ToolCalls?.Select(tc => new
                     {
                         Id = tc.Id,
@@ -212,7 +212,7 @@ namespace SmolConv.Inference
 
                 // Reconstruct ChatMessage from cache
                 var toolCalls = cacheData.ToolCalls?.Select(tc => new ChatMessageToolCall(
-                    new ChatMessageToolCallFunction(tc.Function.Name, tc.Function.Arguments),
+                    new ChatMessageToolCallFunction(tc.Function.Name, tc.Function.Arguments ?? new Dictionary<string, object>()),
                     tc.Id,
                     tc.Type
                 )).ToList();
@@ -241,7 +241,7 @@ namespace SmolConv.Inference
                 var cacheData = new CacheData
                 {
                     Role = response.Role,
-                    Content = response.Content?.ToString() ?? response.ContentString ?? "",
+                    Content = GetContentAsString(response.Content) ?? response.ContentString ?? "",
                     ToolCalls = response.ToolCalls?.Select(tc => new CachedToolCall
                     {
                         Id = tc.Id,
@@ -303,6 +303,21 @@ namespace SmolConv.Inference
         {
             public int InputTokens { get; set; }
             public int OutputTokens { get; set; }
+        }
+
+        private static string? GetContentAsString(object? content)
+        {
+            if (content == null) return null;
+            
+            // If it's AgentText, get the raw value
+            if (content is SmolConv.Models.AgentText agentText)
+            {
+                var rawValue = agentText.ToRaw();
+                return rawValue?.ToString();
+            }
+            
+            // For other types, use ToString()
+            return content.ToString();
         }
 
         private List<OpenAI.Chat.ChatMessage> ConvertToAzureOpenAIMessages(List<ChatMessage> messages)

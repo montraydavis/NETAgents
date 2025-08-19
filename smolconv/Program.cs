@@ -3,7 +3,6 @@
 using MCPCSharpRelevancy.Services.Analysis;
 using SmolConv;
 using SmolConv.Core;
-using SmolConv.Exceptions;
 using SmolConv.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -156,7 +155,7 @@ foreach (var node in analysis.Nodes.Values)
 
 var endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT") ?? string.Empty;
 var apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY") ?? string.Empty;
-var agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1-nano", endpoint, apiKey));
+var agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1", endpoint, apiKey));
 
 Console.WriteLine("Starting agent execution...");
 var result = await agent.RunAsync("What is the capital of paris ?");
