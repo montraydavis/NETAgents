@@ -1,3 +1,5 @@
+using System.Runtime.Loader;
+
 namespace MCPCSharpRelevancy.Services.Analysis
 {
     using MCPCSharpRelevancy.Models;
@@ -52,13 +54,13 @@ namespace MCPCSharpRelevancy.Services.Analysis
                 Console.WriteLine("Testing MSBuild project creation...");
                 
                 // Test 3: Check Roslyn MSBuild integration
-                var workspaceType = typeof(Microsoft.CodeAnalysis.MSBuild.MSBuildWorkspace);
+                Type workspaceType = typeof(Microsoft.CodeAnalysis.MSBuild.MSBuildWorkspace);
                 Console.WriteLine($"Successfully accessed MSBuildWorkspace type: {workspaceType.FullName}");
                 
                 // Test 4: Try to create a minimal workspace
                 try
                 {
-                    var testWorkspace = Microsoft.CodeAnalysis.MSBuild.MSBuildWorkspace.Create();
+                    MSBuildWorkspace testWorkspace = Microsoft.CodeAnalysis.MSBuild.MSBuildWorkspace.Create();
                     Console.WriteLine("Successfully created test MSBuildWorkspace");
                     testWorkspace.Dispose();
                 }
@@ -246,7 +248,7 @@ namespace MCPCSharpRelevancy.Services.Analysis
                     ["TreatWarningsAsErrors"] = "false"
                 };
 
-                var workspace = MSBuildWorkspace.Create(properties);
+                MSBuildWorkspace workspace = MSBuildWorkspace.Create(properties);
                 Console.WriteLine("MSBuildWorkspace created successfully with comprehensive properties");
                 return workspace;
             }
@@ -279,7 +281,7 @@ namespace MCPCSharpRelevancy.Services.Analysis
                     ["ContinueOnError"] = "true"
                 };
 
-                var workspace = MSBuildWorkspace.Create(minimalProperties);
+                MSBuildWorkspace workspace = MSBuildWorkspace.Create(minimalProperties);
                 Console.WriteLine("MSBuildWorkspace created successfully with minimal properties");
                 return workspace;
             }
@@ -305,7 +307,7 @@ namespace MCPCSharpRelevancy.Services.Analysis
             // Approach 3: Try without any properties
             try
             {
-                var workspace = MSBuildWorkspace.Create();
+                MSBuildWorkspace workspace = MSBuildWorkspace.Create();
                 Console.WriteLine("MSBuildWorkspace created successfully without properties");
                 return workspace;
             }
@@ -334,23 +336,23 @@ namespace MCPCSharpRelevancy.Services.Analysis
                 Console.WriteLine("Attempting to pre-load MSBuild assemblies...");
                 
                 // Try to load key MSBuild assemblies explicitly
-                var assemblyLoadContext = System.Runtime.Loader.AssemblyLoadContext.Default;
+                AssemblyLoadContext assemblyLoadContext = System.Runtime.Loader.AssemblyLoadContext.Default;
                 
                 // Get the MSBuild path from the registered instance
                 if (MSBuildLocator.IsRegistered)
                 {
-                    var instances = MSBuildLocator.QueryVisualStudioInstances();
+                    IEnumerable<VisualStudioInstance>? instances = MSBuildLocator.QueryVisualStudioInstances();
                     if (instances.Any())
                     {
-                        var instance = instances.First();
-                        var msbuildPath = Path.GetDirectoryName(instance.MSBuildPath);
+                        VisualStudioInstance instance = instances.First();
+                        string? msbuildPath = Path.GetDirectoryName(instance.MSBuildPath);
                         
                         if (!string.IsNullOrEmpty(msbuildPath))
                         {
                             Console.WriteLine($"MSBuild path: {msbuildPath}");
                             
                             // Try to load key assemblies
-                            var assembliesToLoad = new[]
+                            string[] assembliesToLoad = new[]
                             {
                                 "Microsoft.Build.dll",
                                 "Microsoft.Build.Framework.dll",
@@ -358,9 +360,9 @@ namespace MCPCSharpRelevancy.Services.Analysis
                                 "Microsoft.Build.Utilities.Core.dll"
                             };
 
-                            foreach (var assemblyName in assembliesToLoad)
+                            foreach (string assemblyName in assembliesToLoad)
                             {
-                                var assemblyPath = Path.Combine(msbuildPath, assemblyName);
+                                string assemblyPath = Path.Combine(msbuildPath, assemblyName);
                                 if (File.Exists(assemblyPath))
                                 {
                                     try
@@ -378,7 +380,7 @@ namespace MCPCSharpRelevancy.Services.Analysis
                     }
                 }
 
-                var workspace = MSBuildWorkspace.Create();
+                MSBuildWorkspace workspace = MSBuildWorkspace.Create();
                 Console.WriteLine("MSBuildWorkspace created successfully after pre-loading assemblies");
                 return workspace;
             }
@@ -408,16 +410,16 @@ namespace MCPCSharpRelevancy.Services.Analysis
                 
                 if (MSBuildLocator.IsRegistered)
                 {
-                    var instances = MSBuildLocator.QueryVisualStudioInstances();
+                    IEnumerable<VisualStudioInstance>? instances = MSBuildLocator.QueryVisualStudioInstances();
                     if (instances.Any())
                     {
-                        var instance = instances.First();
+                        VisualStudioInstance instance = instances.First();
                         Environment.SetEnvironmentVariable("MSBUILD_EXE_PATH", instance.MSBuildPath);
                         Console.WriteLine($"Set MSBUILD_EXE_PATH to: {instance.MSBuildPath}");
                     }
                 }
 
-                var workspace = MSBuildWorkspace.Create();
+                MSBuildWorkspace workspace = MSBuildWorkspace.Create();
                 Console.WriteLine("MSBuildWorkspace created successfully with environment variables");
                 return workspace;
             }

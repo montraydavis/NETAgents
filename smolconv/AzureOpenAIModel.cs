@@ -11,31 +11,27 @@ using System.Diagnostics;
 
 namespace SmolConv.Inference
 {
-
-
     public class AzureOpenAIModel : Model
     {
-        private readonly AzureOpenAIClient _azureClient;
         private readonly ChatClient _chatClient;
         private readonly string _modelId;
         private readonly string _endpoint;
         private readonly string _cacheDirectory;
         private readonly string _cacheSalt;
 
-        public AzureOpenAIModel(string modelId, string endpoint, string apiKey) : base()
+        public AzureOpenAIModel(string modelId, string endpoint, string apiKey) : base(modelId: modelId)
         {
             _modelId = modelId;
             _endpoint = endpoint;
 
             // Create Azure OpenAI client with API key authentication
-            _azureClient = new AzureOpenAIClient(
+            var azureClient = new AzureOpenAIClient(
                 new Uri(endpoint),
                 new ApiKeyCredential(apiKey)
             );
 
             // Get chat client for the specific deployment
-            _chatClient = _azureClient.GetChatClient(modelId);
-            ModelId = modelId;
+            _chatClient = azureClient.GetChatClient(_modelId);
 
             // Initialize cache directory and salt
             _cacheDirectory = Path.Combine(
@@ -43,7 +39,7 @@ namespace SmolConv.Inference
                 "smolconv",
                 ".cache"
             );
-            _cacheSalt = $"{modelId}_{endpoint}"; // Use model and endpoint as salt
+            _cacheSalt = $"{_modelId}_{endpoint}"; // Use model and endpoint as salt
             
             // Ensure cache directory exists
             Directory.CreateDirectory(_cacheDirectory);
@@ -55,11 +51,11 @@ namespace SmolConv.Inference
             try
             {
                 // Generate cache key
-                var cacheKey = GenerateCacheKey(messages, options);
-                var cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
+                string cacheKey = GenerateCacheKey(messages, options);
+                string cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
 
                 // Try to load from cache first
-                var cachedResponse = LoadFromCache(cacheFilePath);
+                ChatMessage? cachedResponse = LoadFromCache(cacheFilePath);
                 if (cachedResponse != null)
                 {
                     Debug.WriteLine($"Loaded from cache: {cacheFilePath}");
@@ -67,18 +63,18 @@ namespace SmolConv.Inference
                 }
 
                 // Convert smolagents messages to Azure OpenAI format
-                var azureMessages = ConvertToAzureOpenAIMessages(messages);
+                List<OpenAI.Chat.ChatMessage> azureMessages = ConvertToAzureOpenAIMessages(messages);
 
                 // Prepare completion options
-                var completionOptions = new ChatCompletionOptions();
+                ChatCompletionOptions completionOptions = new ChatCompletionOptions();
 
                 // Add tools if provided
                 if (options?.ToolsToCallFrom != null && options.ToolsToCallFrom.Count > 0)
                 {
-                    foreach (var tool in options.ToolsToCallFrom)
+                    foreach (BaseTool tool in options.ToolsToCallFrom)
                     {
-                        var toolSchema = ConvertToolToSchema(tool);
-                        var chatTool = ChatTool.CreateFunctionTool(
+                        Dictionary<string, object> toolSchema = ConvertToolToSchema(tool);
+                        ChatTool? chatTool = ChatTool.CreateFunctionTool(
                             functionName: tool.Name,
                             functionParameters: BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(toolSchema))
                         );
@@ -113,7 +109,7 @@ namespace SmolConv.Inference
                 // Add other options
                 if (options?.StopSequences != null && options.StopSequences.Count > 0)
                 {
-                    foreach (var stop in options.StopSequences)
+                    foreach (string stop in options.StopSequences)
                     {
                         completionOptions.StopSequences.Add(stop);
                     }
@@ -126,10 +122,10 @@ namespace SmolConv.Inference
                 }
 
                 // Call Azure OpenAI API
-                var completion = await _chatClient.CompleteChatAsync(azureMessages, completionOptions, cancellationToken);
+                ClientResult<ChatCompletion>? completion = await _chatClient.CompleteChatAsync(azureMessages, completionOptions, cancellationToken);
 
                 // Convert response back to smolagents format
-                var response = ConvertFromAzureOpenAIResponse(completion);
+                ChatMessage response = ConvertFromAzureOpenAIResponse(completion);
 
                 // Save to cache
                 SaveToCache(cacheFilePath, response);
@@ -177,16 +173,16 @@ namespace SmolConv.Inference
                 } : null
             };
 
-            var jsonString = JsonSerializer.Serialize(requestData, new JsonSerializerOptions
+            string jsonString = JsonSerializer.Serialize(requestData, new JsonSerializerOptions
             {
                 WriteIndented = false,
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
 
             // Combine with salt and generate SHA256 hash
-            var saltedData = $"{_cacheSalt}:{jsonString}";
-            using var sha256 = SHA256.Create();
-            var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(saltedData));
+            string saltedData = $"{_cacheSalt}:{jsonString}";
+            using SHA256 sha256 = SHA256.Create();
+            byte[] hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(saltedData));
             return Convert.ToHexString(hashBytes).ToLower();
         }
 
@@ -197,8 +193,8 @@ namespace SmolConv.Inference
                 if (!File.Exists(cacheFilePath))
                     return null;
 
-                var jsonContent = File.ReadAllText(cacheFilePath);
-                var cacheData = JsonSerializer.Deserialize<CacheData>(jsonContent);
+                string jsonContent = File.ReadAllText(cacheFilePath);
+                CacheData? cacheData = JsonSerializer.Deserialize<CacheData>(jsonContent);
 
                 if (cacheData == null)
                     return null;
@@ -211,13 +207,13 @@ namespace SmolConv.Inference
                 }
 
                 // Reconstruct ChatMessage from cache
-                var toolCalls = cacheData.ToolCalls?.Select(tc => new ChatMessageToolCall(
+                List<ChatMessageToolCall>? toolCalls = cacheData.ToolCalls?.Select(tc => new ChatMessageToolCall(
                     new ChatMessageToolCallFunction(tc.Function.Name, tc.Function.Arguments ?? new Dictionary<string, object>()),
                     tc.Id,
                     tc.Type
                 )).ToList();
 
-                var tokenUsage = cacheData.TokenUsage != null 
+                TokenUsage? tokenUsage = cacheData.TokenUsage != null 
                     ? new TokenUsage(cacheData.TokenUsage.InputTokens, cacheData.TokenUsage.OutputTokens)
                     : null;
 
@@ -238,7 +234,7 @@ namespace SmolConv.Inference
         {
             try
             {
-                var cacheData = new CacheData
+                CacheData cacheData = new CacheData
                 {
                     Role = response.Role,
                     Content = GetContentAsString(response.Content) ?? response.ContentString ?? "",
@@ -261,7 +257,7 @@ namespace SmolConv.Inference
                     ExpiresAt = DateTime.UtcNow.AddDays(7) // Cache for 7 days by default
                 };
 
-                var jsonContent = JsonSerializer.Serialize(cacheData, new JsonSerializerOptions
+                string jsonContent = JsonSerializer.Serialize(cacheData, new JsonSerializerOptions
                 {
                     WriteIndented = true
                 });
@@ -279,7 +275,7 @@ namespace SmolConv.Inference
         private class CacheData
         {
             public MessageRole Role { get; set; }
-            public string Content { get; set; } = "";
+            public string Content { get; set; }
             public List<CachedToolCall>? ToolCalls { get; set; }
             public CachedTokenUsage? TokenUsage { get; set; }
             public DateTime CachedAt { get; set; }
@@ -307,24 +303,27 @@ namespace SmolConv.Inference
 
         private static string? GetContentAsString(object? content)
         {
-            if (content == null) return null;
-            
-            // If it's AgentText, get the raw value
-            if (content is SmolConv.Models.AgentText agentText)
+            switch (content)
             {
-                var rawValue = agentText.ToRaw();
-                return rawValue?.ToString();
+                case null:
+                    return null;
+                // If it's AgentText, get the raw value
+                case SmolConv.Models.AgentText agentText:
+                {
+                    object? rawValue = agentText.ToRaw();
+                    return rawValue?.ToString();
+                }
+                default:
+                    // For other types, use ToString()
+                    return content.ToString();
             }
-            
-            // For other types, use ToString()
-            return content.ToString();
         }
 
         private List<OpenAI.Chat.ChatMessage> ConvertToAzureOpenAIMessages(List<ChatMessage> messages)
         {
-            var result = new List<OpenAI.Chat.ChatMessage>();
+            List<OpenAI.Chat.ChatMessage> result = new List<OpenAI.Chat.ChatMessage>();
 
-            foreach (var message in messages)
+            foreach (ChatMessage message in messages)
             {
                 switch (message.Role)
                 {
@@ -337,14 +336,14 @@ namespace SmolConv.Inference
                         break;
 
                     case MessageRole.Assistant:
-                        var assistantMessage = new AssistantChatMessage(GetMessageContent(message));
+                        AssistantChatMessage assistantMessage = new AssistantChatMessage(GetMessageContent(message));
 
                         // Add tool calls if present
                         if (message.ToolCalls != null && message.ToolCalls.Count > 0)
                         {
-                            foreach (var toolCall in message.ToolCalls)
+                            foreach (ChatMessageToolCall toolCall in message.ToolCalls)
                             {
-                                var arguments = JsonSerializer.Serialize(toolCall.Function.Arguments ?? new Dictionary<string, object>());
+                                string arguments = JsonSerializer.Serialize(toolCall.Function.Arguments ?? new Dictionary<string, object>());
                                 assistantMessage.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
                                     toolCall.Id,
                                     toolCall.Function.Name,
@@ -359,11 +358,13 @@ namespace SmolConv.Inference
                     case MessageRole.ToolCall:
                     case MessageRole.ToolResponse:
                         // For tool response messages, we need the tool call ID
-                        var toolContent = GetMessageContent(message);
-                        var toolCallId = ExtractToolCallIdFromContent(toolContent) ?? "unknown";
+                        string toolContent = GetMessageContent(message);
+                        string toolCallId = ExtractToolCallIdFromContent(toolContent) ?? "unknown";
 
                         result.Add(new ToolChatMessage(toolCallId, toolContent));
                         break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
                 }
             }
 
@@ -381,8 +382,8 @@ namespace SmolConv.Inference
             // Handle complex content structures
             if (message.Content is object[] contentArray)
             {
-                var textParts = new List<string>();
-                foreach (var item in contentArray)
+                List<string> textParts = new List<string>();
+                foreach (object item in contentArray)
                 {
                     if (item is Dictionary<string, object> dict && dict.ContainsKey("text"))
                     {
@@ -401,8 +402,8 @@ namespace SmolConv.Inference
             // This is a simplified implementation
             if (content.Contains("Call id:"))
             {
-                var startIndex = content.IndexOf("Call id:") + 8;
-                var endIndex = content.IndexOf('\n', startIndex);
+                int startIndex = content.IndexOf("Call id:", StringComparison.Ordinal) + 8;
+                int endIndex = content.IndexOf('\n', startIndex);
                 if (endIndex == -1) endIndex = content.Length;
                 return content.Substring(startIndex, endIndex - startIndex).Trim();
             }
@@ -411,7 +412,7 @@ namespace SmolConv.Inference
 
         private ChatMessage ConvertFromAzureOpenAIResponse(ChatCompletion completion)
         {
-            var content = "";
+            string content = "";
             if (completion.Content.Count > 0)
             {
                 content = completion.Content[0].Text ?? "";
@@ -422,13 +423,13 @@ namespace SmolConv.Inference
             // Handle tool calls if present
             if (completion.ToolCalls != null && completion.ToolCalls.Count > 0)
             {
-                toolCalls = new List<ChatMessageToolCall>();
+                toolCalls = [];
 
-                foreach (var azureToolCall in completion.ToolCalls)
+                foreach (ChatToolCall? azureToolCall in completion.ToolCalls)
                 {
-                    var arguments = ParseToolCallArguments(azureToolCall.FunctionArguments.ToString());
+                    object arguments = ParseToolCallArguments(azureToolCall.FunctionArguments.ToString());
 
-                    var fn = new ChatMessageToolCallFunction(azureToolCall.FunctionName, arguments);
+                    ChatMessageToolCallFunction fn = new ChatMessageToolCallFunction(azureToolCall.FunctionName, arguments);
 
                     toolCalls.Add(new ChatMessageToolCall(fn, azureToolCall.Id, "function"));
                 }
@@ -454,7 +455,7 @@ namespace SmolConv.Inference
 
             try
             {
-                var parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(argumentsJson);
+                Dictionary<string, object>? parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(argumentsJson);
                 return parsed ?? new Dictionary<string, object>();
             }
             catch (JsonException)
@@ -466,12 +467,12 @@ namespace SmolConv.Inference
 
         private Dictionary<string, object> ConvertToolToSchema(BaseTool tool)
         {
-            var properties = new Dictionary<string, object>();
-            var required = new List<string>();
+            Dictionary<string, object> properties = new Dictionary<string, object>();
+            List<string> required = new List<string>();
 
-            foreach (var input in tool.Inputs)
+            foreach (KeyValuePair<string, Dictionary<string, object>> input in tool.Inputs)
             {
-                var property = new Dictionary<string, object>
+                Dictionary<string, object> property = new Dictionary<string, object>
                 {
                     ["type"] = input.Value.GetValueOrDefault("type", "string"),
                     ["description"] = input.Value.GetValueOrDefault("description", "")
@@ -486,7 +487,7 @@ namespace SmolConv.Inference
                 properties[input.Key] = property;
 
                 // Add to required if not optional
-                var isOptional = input.Value.ContainsKey("optional") && (bool)input.Value["optional"];
+                bool isOptional = input.Value.ContainsKey("optional") && (bool)input.Value["optional"];
                 if (!isOptional)
                 {
                     required.Add(input.Key);
@@ -514,7 +515,7 @@ namespace SmolConv.Inference
             {
                 try
                 {
-                    var toolCalls = ParseToolCallsFromContent(content);
+                    List<ChatMessageToolCall> toolCalls = ParseToolCallsFromContent(content);
                     if (toolCalls.Count > 0)
                     {
                         return new ChatMessage(message.Role, message.Content, message.ContentString, toolCalls);
@@ -531,7 +532,7 @@ namespace SmolConv.Inference
 
         private List<ChatMessageToolCall> ParseToolCallsFromContent(string content)
         {
-            var toolCalls = new List<ChatMessageToolCall>();
+            List<ChatMessageToolCall> toolCalls = new List<ChatMessageToolCall>();
 
             // Look for various tool call patterns in the content
             // This is a fallback parser for models that don't support native tool calling
@@ -539,12 +540,12 @@ namespace SmolConv.Inference
             // Pattern 1: "invoke tool_name: arguments"
             if (content.Contains("invoke ") && content.Contains(":"))
             {
-                var lines = content.Split('\n');
-                foreach (var line in lines)
+                string[] lines = content.Split('\n');
+                foreach (string line in lines)
                 {
                     if (line.Trim().StartsWith("invoke "))
                     {
-                        var toolCall = ParseInvokePattern(line.Trim());
+                        ChatMessageToolCall? toolCall = ParseInvokePattern(line.Trim());
                         if (toolCall != null)
                         {
                             toolCalls.Add(toolCall);
@@ -556,7 +557,7 @@ namespace SmolConv.Inference
             // Pattern 2: JSON tool call format
             if (content.Contains("\"type\": \"function\"") || content.Contains("tool_calls"))
             {
-                var jsonToolCalls = ParseJsonToolCalls(content);
+                List<ChatMessageToolCall> jsonToolCalls = ParseJsonToolCalls(content);
                 toolCalls.AddRange(jsonToolCalls);
             }
 
@@ -568,25 +569,25 @@ namespace SmolConv.Inference
             try
             {
                 // Parse "invoke final_answer: 'Hello, how are you?'"
-                var colonIndex = line.IndexOf(':');
+                int colonIndex = line.IndexOf(':');
                 if (colonIndex == -1) return null;
 
-                var toolPart = line.Substring(7, colonIndex - 7).Trim(); // Remove "invoke "
-                var argsPart = line.Substring(colonIndex + 1).Trim();
+                string toolPart = line.Substring(7, colonIndex - 7).Trim(); // Remove "invoke "
+                string argsPart = line.Substring(colonIndex + 1).Trim();
 
                 // Simple argument parsing - handle quoted strings
-                var arguments = new Dictionary<string, object>();
+                Dictionary<string, object> arguments = new Dictionary<string, object>();
 
                 if (argsPart.StartsWith("'") && argsPart.EndsWith("'"))
                 {
                     // Single quoted string
-                    var value = argsPart.Substring(1, argsPart.Length - 2);
+                    string value = argsPart.Substring(1, argsPart.Length - 2);
                     arguments[GetDefaultArgumentName(toolPart)] = value;
                 }
                 else if (argsPart.StartsWith("\"") && argsPart.EndsWith("\""))
                 {
                     // Double quoted string
-                    var value = argsPart.Substring(1, argsPart.Length - 2);
+                    string value = argsPart.Substring(1, argsPart.Length - 2);
                     arguments[GetDefaultArgumentName(toolPart)] = value;
                 }
                 else
@@ -594,7 +595,7 @@ namespace SmolConv.Inference
                     // Try to parse as JSON or treat as raw value
                     try
                     {
-                        var parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(argsPart);
+                        Dictionary<string, object>? parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(argsPart);
                         arguments = parsed ?? arguments;
                     }
                     catch
@@ -623,31 +624,31 @@ namespace SmolConv.Inference
             };
         }
 
-        private List<ChatMessageToolCall> ParseJsonToolCalls(string content)
+        private static List<ChatMessageToolCall> ParseJsonToolCalls(string content)
         {
-            var toolCalls = new List<ChatMessageToolCall>();
+            List<ChatMessageToolCall> toolCalls = new List<ChatMessageToolCall>();
 
             try
             {
                 // Try to find and parse JSON structures that look like tool calls
-                var jsonStart = content.IndexOf('{');
-                var jsonEnd = content.LastIndexOf('}');
+                int jsonStart = content.IndexOf('{');
+                int jsonEnd = content.LastIndexOf('}');
 
                 if (jsonStart >= 0 && jsonEnd > jsonStart)
                 {
-                    var jsonContent = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
+                    string jsonContent = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
 
                     // Try to parse as a single tool call or array of tool calls
                     try
                     {
                         if (jsonContent.TrimStart().StartsWith('['))
                         {
-                            var array = JsonSerializer.Deserialize<object[]>(jsonContent);
+                            object[]? array = JsonSerializer.Deserialize<object[]>(jsonContent);
                             // Parse array of tool calls
                         }
                         else
                         {
-                            var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonContent);
+                            Dictionary<string, object>? obj = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonContent);
                             // Parse single tool call
                         }
                     }
@@ -667,7 +668,7 @@ namespace SmolConv.Inference
 
         public override Dictionary<string, object> ToDict()
         {
-            var result = base.ToDict();
+            Dictionary<string, object> result = base.ToDict();
             result["model_type"] = "AzureOpenAIModel";
             result["endpoint"] = _endpoint;
             result["api_key"] = "[REDACTED]"; // Don't expose API key
@@ -683,13 +684,12 @@ namespace SmolConv.Inference
         {
             try
             {
-                if (Directory.Exists(_cacheDirectory))
+                if (!Directory.Exists(_cacheDirectory)) return;
+                
+                string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+                foreach (string file in cacheFiles)
                 {
-                    var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
-                    foreach (var file in cacheFiles)
-                    {
-                        File.Delete(file);
-                    }
+                    File.Delete(file);
                 }
             }
             catch (Exception ex)
@@ -704,14 +704,14 @@ namespace SmolConv.Inference
         /// <returns>Cache statistics including file count and total size</returns>
         public Dictionary<string, object> GetCacheStats()
         {
-            var stats = new Dictionary<string, object>();
+            Dictionary<string, object> stats = new Dictionary<string, object>();
             
             try
             {
                 if (Directory.Exists(_cacheDirectory))
                 {
-                    var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
-                    var totalSize = cacheFiles.Sum(file => new FileInfo(file).Length);
+                    string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+                    long totalSize = cacheFiles.Sum(file => new FileInfo(file).Length);
                     
                     stats["file_count"] = cacheFiles.Length;
                     stats["total_size_bytes"] = totalSize;
@@ -744,15 +744,15 @@ namespace SmolConv.Inference
                 if (!Directory.Exists(_cacheDirectory))
                     return;
 
-                var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
-                var removedCount = 0;
+                string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+                int removedCount = 0;
 
-                foreach (var file in cacheFiles)
+                foreach (string file in cacheFiles)
                 {
                     try
                     {
-                        var jsonContent = File.ReadAllText(file);
-                        var cacheData = JsonSerializer.Deserialize<CacheData>(jsonContent);
+                        string jsonContent = File.ReadAllText(file);
+                        CacheData? cacheData = JsonSerializer.Deserialize<CacheData>(jsonContent);
 
                         if (cacheData?.ExpiresAt.HasValue == true && DateTime.UtcNow > cacheData.ExpiresAt.Value)
                         {

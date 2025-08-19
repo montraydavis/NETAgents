@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using NETAgents.Tools.Processing.Models;
 using NETAgents.Tools.Processing.Services;
 using NETAgents.Tools.Processing.Cache;
@@ -40,7 +42,7 @@ public class CachedMultiLevelWorker : BackgroundService
         try
         {
             await StartFileDiscoveryAsync(stoppingToken);
-            var monitoringTask = Task.Run(async () => await RunMonitoringLoopAsync(stoppingToken), stoppingToken);
+            Task monitoringTask = Task.Run(async () => await RunMonitoringLoopAsync(stoppingToken), stoppingToken);
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
         catch (OperationCanceledException)
@@ -62,18 +64,18 @@ public class CachedMultiLevelWorker : BackgroundService
     {
         _logger.LogInformation("Starting file discovery service with cache checking");
 
-        var initialFiles = await _fileDiscoveryService.DiscoverFilesAsync(stoppingToken);
+        IEnumerable<FileProcessingJob> initialFiles = await _fileDiscoveryService.DiscoverFilesAsync(stoppingToken);
         await StartProcessingWorkersAsync(stoppingToken);
 
-        var newFilesCount = 0;
-        var cachedFilesCount = 0;
+        int newFilesCount = 0;
+        int cachedFilesCount = 0;
 
-        foreach (var file in initialFiles)
+        foreach (FileProcessingJob file in initialFiles)
         {
             try
             {
                 // Calculate current file hash
-                var currentHash = await CalculateFileHashAsync(file.FilePath);
+                string currentHash = await CalculateFileHashAsync(file.FilePath);
 
                 // Check if file is already processed and up-to-date
                 if (await _cacheService.IsFileProcessedAsync(file.FilePath, currentHash, stoppingToken))
@@ -84,7 +86,7 @@ public class CachedMultiLevelWorker : BackgroundService
                 }
 
                 // File needs processing
-                var multiLevelJob = ConvertToMultiLevelJob(file);
+                MultiLevelProcessingJob multiLevelJob = ConvertToMultiLevelJob(file);
                 await _queueService.EnqueueJobAsync(multiLevelJob, stoppingToken);
                 newFilesCount++;
             }
@@ -92,7 +94,7 @@ public class CachedMultiLevelWorker : BackgroundService
             {
                 _logger.LogError(ex, "Error checking cache for file {FilePath}", file.FilePath);
                 // Fallback to processing the file
-                var multiLevelJob = ConvertToMultiLevelJob(file);
+                MultiLevelProcessingJob multiLevelJob = ConvertToMultiLevelJob(file);
                 await _queueService.EnqueueJobAsync(multiLevelJob, stoppingToken);
                 newFilesCount++;
             }
@@ -127,8 +129,8 @@ public class CachedMultiLevelWorker : BackgroundService
 
         for (int i = 0; i < _options.MaxConcurrentProcessing; i++)
         {
-            var workerId = i;
-            var workerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
+            int workerId = i;
+            Task workerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
             _processingTasks.Add(workerTask);
         }
 
@@ -143,7 +145,7 @@ public class CachedMultiLevelWorker : BackgroundService
         {
             try
             {
-                var job = await _queueService.DequeueJobAsync(stoppingToken);
+                FileProcessingJob? job = await _queueService.DequeueJobAsync(stoppingToken);
 
                 if (job is not MultiLevelProcessingJob multiLevelJob)
                 {
@@ -177,20 +179,20 @@ public class CachedMultiLevelWorker : BackgroundService
 
     private async Task ProcessCachedMultiLevelJobAsync(MultiLevelProcessingJob job, int workerId, CancellationToken stoppingToken)
     {
-        var startTime = DateTime.UtcNow;
+        DateTime startTime = DateTime.UtcNow;
         job.StartedAt = startTime;
         job.Status = ProcessingStatus.Processing;
 
         try
         {
             // Check if we have partial results in cache
-            var cachedEntry = await _cacheService.GetProcessedFileAsync(job.FilePath, stoppingToken);
+            ProcessedFileEntry? cachedEntry = await _cacheService.GetProcessedFileAsync(job.FilePath, stoppingToken);
             if (cachedEntry != null)
             {
                 // Load any successfully processed levels from cache
-                foreach (var level in job.RequiredLevels)
+                foreach (ProcessingLevel level in job.RequiredLevels)
                 {
-                    if (cachedEntry.LevelData.TryGetValue(level, out var cachedLevelData) && cachedLevelData.IsSuccess)
+                    if (cachedEntry.LevelData.TryGetValue(level, out ProcessedLevelData? cachedLevelData) && cachedLevelData.IsSuccess)
                     {
                         job.Results[level] = new ProcessingResult
                         {
@@ -206,7 +208,7 @@ public class CachedMultiLevelWorker : BackgroundService
             }
 
             // Process only the levels that aren't cached or failed
-            foreach (var level in job.RequiredLevels)
+            foreach (ProcessingLevel level in job.RequiredLevels)
             {
                 if (job.Results.ContainsKey(level) && job.Results[level].IsSuccess)
                 {
@@ -217,7 +219,7 @@ public class CachedMultiLevelWorker : BackgroundService
                 _logger.LogInformation("Worker {WorkerId} processing {Level} for job {JobId}", workerId, level, job.Id);
 
                 job.CurrentLevel = level;
-                var result = await _processorService.ProcessLevelAsync(job, level, stoppingToken);
+                ProcessingResult result = await _processorService.ProcessLevelAsync(job, level, stoppingToken);
                 job.Results[level] = result;
 
                 if (!result.IsSuccess)
@@ -235,13 +237,13 @@ public class CachedMultiLevelWorker : BackgroundService
             if (job.IsMultiLevelComplete)
             {
                 // Final validation before caching - ensure all results contain valid JSON
-                foreach (var result in job.Results.Values)
+                foreach (ProcessingResult result in job.Results.Values)
                 {
                     if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.Content))
                     {
                         try
                         {
-                            using var doc = System.Text.Json.JsonDocument.Parse(result.Content);
+                            using JsonDocument doc = System.Text.Json.JsonDocument.Parse(result.Content);
                         }
                         catch (System.Text.Json.JsonException jsonEx)
                         {
@@ -255,10 +257,10 @@ public class CachedMultiLevelWorker : BackgroundService
                 // Store in cache
                 await _cacheService.StoreProcessedFileAsync(job, stoppingToken);
 
-                var aggregatedResult = AggregateResults(job);
+                string aggregatedResult = AggregateResults(job);
                 _queueService.CompleteJob(job, true, aggregatedResult);
 
-                var totalDuration = DateTime.UtcNow - startTime;
+                TimeSpan totalDuration = DateTime.UtcNow - startTime;
                 _logger.LogInformation("Worker {WorkerId} completed and cached all levels for job {JobId} in {Duration:F2}s",
                     workerId, job.Id, totalDuration.TotalSeconds);
             }
@@ -364,14 +366,14 @@ public class CachedMultiLevelWorker : BackgroundService
 
     private Task CheckAndRestartFailedWorkers(CancellationToken stoppingToken)
     {
-        var failedTasks = _processingTasks.Where(t => t.IsFaulted || t.IsCompleted).ToList();
+        List<Task> failedTasks = _processingTasks.Where(t => t.IsFaulted || t.IsCompleted).ToList();
 
-        foreach (var failedTask in failedTasks)
+        foreach (Task failedTask in failedTasks)
         {
             _processingTasks.Remove(failedTask);
 
-            var workerId = _processingTasks.Count;
-            var newWorkerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
+            int workerId = _processingTasks.Count;
+            Task newWorkerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
             _processingTasks.Add(newWorkerTask);
         }
 
@@ -382,16 +384,16 @@ public class CachedMultiLevelWorker : BackgroundService
     {
         try
         {
-            using var sha256 = System.Security.Cryptography.SHA256.Create();
-            using var stream = File.OpenRead(filePath);
-            var hash = await sha256.ComputeHashAsync(stream);
+            using SHA256 sha256 = System.Security.Cryptography.SHA256.Create();
+            using FileStream stream = File.OpenRead(filePath);
+            byte[] hash = await sha256.ComputeHashAsync(stream);
             return Convert.ToBase64String(hash);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to calculate hash for {FilePath}", filePath);
             // Fallback to file modification time
-            var fileInfo = new FileInfo(filePath);
+            FileInfo fileInfo = new FileInfo(filePath);
             return fileInfo.LastWriteTimeUtc.Ticks.ToString();
         }
     }
@@ -406,8 +408,8 @@ public class CachedMultiLevelWorker : BackgroundService
 
             if (_processingTasks.Any())
             {
-                var timeout = Task.Delay(TimeSpan.FromSeconds(30));
-                var completedTask = await Task.WhenAny(Task.WhenAll(_processingTasks), timeout);
+                Task timeout = Task.Delay(TimeSpan.FromSeconds(30));
+                Task completedTask = await Task.WhenAny(Task.WhenAll(_processingTasks), timeout);
 
                 if (completedTask == timeout)
                 {

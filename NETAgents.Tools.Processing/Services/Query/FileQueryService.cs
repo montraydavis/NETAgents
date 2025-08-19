@@ -36,14 +36,14 @@ public class FileQueryService : BaseQueryService
         IEnumerable<ProcessedFileEntry> files, 
         FileQueryRequest request)
     {
-        var query = files.AsEnumerable();
+        IEnumerable<ProcessedFileEntry> query = files.AsEnumerable();
 
         if (!string.IsNullOrEmpty(request.FilePath))
             query = query.Where(f => f.FilePath == request.FilePath);
         
         if (!string.IsNullOrEmpty(request.FilePattern))
         {
-            var regex = new Regex(request.FilePattern.Replace("*", ".*"), RegexOptions.IgnoreCase);
+            Regex regex = new Regex(request.FilePattern.Replace("*", ".*"), RegexOptions.IgnoreCase);
             query = query.Where(f => regex.IsMatch(f.FilePath));
         }
         
@@ -64,19 +64,19 @@ public class FileQueryService : BaseQueryService
 
     private async Task<List<ProcessedFileEntry>> GetAllCachedEntriesAsync(CancellationToken cancellationToken)
     {
-        var entries = new List<ProcessedFileEntry>();
+        List<ProcessedFileEntry> entries = new List<ProcessedFileEntry>();
         
         try
         {
-            var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+            string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
             _logger.LogDebug("Found {Count} cache files in directory: {CacheDirectory}", cacheFiles.Length, _cacheDirectory);
             
-            foreach (var cacheFile in cacheFiles)
+            foreach (string cacheFile in cacheFiles)
             {
                 try
                 {
-                    var jsonContent = await File.ReadAllTextAsync(cacheFile, cancellationToken);
-                    var entry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
+                    string jsonContent = await File.ReadAllTextAsync(cacheFile, cancellationToken);
+                    ProcessedFileEntry? entry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
                     if (entry != null)
                     {
                         entries.Add(entry);

@@ -41,13 +41,13 @@ public class FileDiscoveryService : IFileDiscoveryService
         try
         {
             _logger.LogInformation("Getting files from directory: {Directory} with pattern: {Pattern}", _options.InputDirectory, _options.FilePattern);
-            var files = Directory.GetFiles(_options.InputDirectory, _options.FilePattern);
+            string[] files = Directory.GetFiles(_options.InputDirectory, _options.FilePattern);
             _logger.LogInformation("Found {Count} files matching pattern", files.Length);
             
-            var filteredFiles = files.Where(f => !_processedFiles.Contains(f)).ToList();
+            List<string> filteredFiles = files.Where(f => !_processedFiles.Contains(f)).ToList();
             _logger.LogInformation("After filtering processed files: {Count} files", filteredFiles.Count);
             
-            var jobs = filteredFiles.Select(CreateJobFromFile).ToList();
+            List<FileProcessingJob> jobs = filteredFiles.Select(CreateJobFromFile).ToList();
             _logger.LogInformation("Created {Count} jobs from files", jobs.Count);
 
             _logger.LogInformation("Discovered {Count} new files in {Directory}", jobs.Count, _options.InputDirectory);
@@ -138,7 +138,7 @@ public class FileDiscoveryService : IFileDiscoveryService
             
             if (File.Exists(e.FullPath) && !_processedFiles.Contains(e.FullPath))
             {
-                var job = CreateJobFromFile(e.FullPath);
+                FileProcessingJob job = CreateJobFromFile(e.FullPath);
                 await _queueService.EnqueueJobAsync(job, cancellationToken);
                 _processedFiles.Add(e.FullPath);
                 
@@ -160,7 +160,7 @@ public class FileDiscoveryService : IFileDiscoveryService
             
             if (File.Exists(e.FullPath) && !_processedFiles.Contains(e.FullPath))
             {
-                var job = CreateJobFromFile(e.FullPath);
+                FileProcessingJob job = CreateJobFromFile(e.FullPath);
                 await _queueService.EnqueueJobAsync(job, cancellationToken);
                 _processedFiles.Add(e.FullPath);
                 
@@ -188,7 +188,7 @@ public class FileDiscoveryService : IFileDiscoveryService
             string content = string.Join("\n", sections);
             _logger.LogDebug("Created content of {Length} characters for file: {FilePath}", content.Length, filePath);
 
-            var job = new FileProcessingJob
+            FileProcessingJob job = new FileProcessingJob
             {
                 FilePath = filePath,
                 Content = content

@@ -151,9 +151,9 @@ namespace SmolConv.Core
         {
             if (stepCallbacks != null)
             {
-                foreach (var kvp in stepCallbacks)
+                foreach (KeyValuePair<Type, List<Action<MemoryStep, object>>> kvp in stepCallbacks)
                 {
-                    foreach (var callback in kvp.Value)
+                    foreach (Action<MemoryStep, object> callback in kvp.Value)
                     {
                         // This would need proper generic handling
                         _stepCallbacks.Register<ActionStep>((step, agent) => callback(step, agent));
@@ -186,15 +186,15 @@ namespace SmolConv.Core
             bool? returnFullResult = null,
             CancellationToken cancellationToken = default)
         {
-            var effectiveMaxSteps = maxSteps ?? MaxSteps;
-            var effectiveReturnFullResult = returnFullResult ?? ReturnFullResult;
+            int effectiveMaxSteps = maxSteps ?? MaxSteps;
+            bool effectiveReturnFullResult = returnFullResult ?? ReturnFullResult;
 
             Task = task;
             InterruptSwitch = false;
 
             if (additionalArgs != null)
             {
-                foreach (var kvp in additionalArgs)
+                foreach (KeyValuePair<string, object> kvp in additionalArgs)
                 {
                     State[kvp.Key] = kvp.Value;
                 }
@@ -209,29 +209,29 @@ namespace SmolConv.Core
             _logger.LogTask(task.Trim(), $"{_model.GetType().Name} - {_model.ModelId}");
             Memory.AddStep(new TaskStep(task, images));
 
-            var runStartTime = DateTime.UtcNow;
+            DateTime runStartTime = DateTime.UtcNow;
 
             if (stream)
             {
                 return RunStreamAsync(effectiveMaxSteps, images, cancellationToken);
             }
 
-            var steps = new List<MemoryStep>();
-            await foreach (var step in RunStreamAsync(effectiveMaxSteps, images, cancellationToken))
+            List<MemoryStep> steps = new List<MemoryStep>();
+            await foreach (MemoryStep step in RunStreamAsync(effectiveMaxSteps, images, cancellationToken))
             {
                 steps.Add(step);
             }
 
-            var finalStep = steps.LastOrDefault() as FinalAnswerStep;
-            var output = finalStep?.Output;
+            FinalAnswerStep? finalStep = steps.LastOrDefault() as FinalAnswerStep;
+            object? output = finalStep?.Output;
 
             if (effectiveReturnFullResult)
             {
-                var totalInputTokens = 0;
-                var totalOutputTokens = 0;
-                var correctTokenUsage = true;
+                int totalInputTokens = 0;
+                int totalOutputTokens = 0;
+                bool correctTokenUsage = true;
 
-                foreach (var step in Memory.Steps)
+                foreach (MemoryStep step in Memory.Steps)
                 {
                     if (step is ActionStep actionStep && actionStep.TokenUsage != null)
                     {
@@ -249,8 +249,8 @@ namespace SmolConv.Core
                     }
                 }
 
-                var tokenUsage = correctTokenUsage ? new TokenUsage(totalInputTokens, totalOutputTokens) : null;
-                var state = Memory.Steps.Any(s => s is ActionStep a && a.Error is AgentMaxStepsError) ? "max_steps_error" : "success";
+                TokenUsage? tokenUsage = correctTokenUsage ? new TokenUsage(totalInputTokens, totalOutputTokens) : null;
+                string state = Memory.Steps.Any(s => s is ActionStep a && a.Error is AgentMaxStepsError) ? "max_steps_error" : "success";
 
                 return new RunResult(
                     output: output,
@@ -277,7 +277,7 @@ namespace SmolConv.Core
     [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             StepNumber = 1;
-            var returnedFinalAnswer = false;
+            bool returnedFinalAnswer = false;
 
             while (!returnedFinalAnswer && StepNumber <= maxSteps)
             {
@@ -289,14 +289,14 @@ namespace SmolConv.Core
                 // Run planning step if scheduled
                 if (PlanningInterval.HasValue && (StepNumber == 1 || (StepNumber - 1) % PlanningInterval.Value == 0))
                 {
-                    var planningStep = await GeneratePlanningStepAsync(Task!, StepNumber == 1, StepNumber, cancellationToken);
+                    PlanningStep planningStep = await GeneratePlanningStepAsync(Task!, StepNumber == 1, StepNumber, cancellationToken);
                     Memory.AddStep(planningStep);
                     yield return planningStep;
                 }
 
                 // Run action step
-                var actionStepStartTime = DateTime.UtcNow;
-                var actionStep = new ActionStep(
+                DateTime actionStepStartTime = DateTime.UtcNow;
+                ActionStep actionStep = new ActionStep(
                     StepNumber,
                     new Timing((actionStepStartTime - DateTime.UnixEpoch).TotalSeconds),
                     images);
@@ -307,11 +307,11 @@ namespace SmolConv.Core
 
                 try
                 {
-                    await foreach (var output in StepStreamAsync(actionStep, cancellationToken))
+                    await foreach (object output in StepStreamAsync(actionStep, cancellationToken))
                     {
                         if (output is ActionOutput actionOutput && actionOutput.IsFinalAnswer)
                         {
-                            var finalAnswer = actionOutput.Output;
+                            object? finalAnswer = actionOutput.Output;
                             _logger.Log($"Final answer: {finalAnswer}", LogLevel.Info);
 
                             ValidateFinalAnswer(finalAnswer);
@@ -343,8 +343,8 @@ namespace SmolConv.Core
 
             if (!returnedFinalAnswer && StepNumber == maxSteps + 1)
             {
-                var finalAnswer = await ProvideFinalAnswerAsync(Task!, images, cancellationToken);
-                var finalStep = new ActionStep(
+                ChatMessage finalAnswer = await ProvideFinalAnswerAsync(Task!, images, cancellationToken);
+                ActionStep finalStep = new ActionStep(
                     StepNumber,
                     new Timing((DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds),
                     error: new AgentMaxStepsError("Reached max steps.", _logger),
@@ -359,8 +359,8 @@ namespace SmolConv.Core
             }
 
             // Find the actual final answer from memory steps
-            var actualFinalAnswer = new object();
-            foreach (var step in Memory.Steps)
+            object? actualFinalAnswer = new object();
+            foreach (MemoryStep step in Memory.Steps)
             {
                 if (step is ActionStep actionStep && actionStep.IsFinalAnswer && actionStep.ActionOutput != null)
                 {
@@ -405,7 +405,7 @@ namespace SmolConv.Core
         /// <returns>Final answer message</returns>
         protected virtual async Task<ChatMessage> ProvideFinalAnswerAsync(string task, List<object>? images = null, CancellationToken cancellationToken = default)
         {
-            var messages = Memory.ToMessages();
+            List<ChatMessage> messages = Memory.ToMessages();
             return await _model.GenerateAsync(messages, cancellationToken: cancellationToken);
         }
 
@@ -415,7 +415,7 @@ namespace SmolConv.Core
         /// <param name="finalAnswer">Final answer to validate</param>
         protected virtual void ValidateFinalAnswer(object? finalAnswer)
         {
-            foreach (var check in _finalAnswerChecks)
+            foreach (Func<object, AgentMemory, bool> check in _finalAnswerChecks)
             {
                 try
                 {
@@ -439,7 +439,7 @@ namespace SmolConv.Core
         {
             if (step.Timing != null)
             {
-                var timing = step.Timing with { EndTime = (DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds };
+                Timing timing = step.Timing with { EndTime = (DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds };
                 // Update step timing - would need to implement with records properly
             }
 

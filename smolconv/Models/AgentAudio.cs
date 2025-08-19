@@ -36,16 +36,16 @@ namespace SmolConv.Models
                 if (_path.Contains("://"))
                 {
                     // Handle URL
-                    using var client = new HttpClient();
-                    var response = client.GetAsync(_path).Result;
+                    using HttpClient client = new HttpClient();
+                    HttpResponseMessage response = client.GetAsync(_path).Result;
                     response.EnsureSuccessStatusCode();
-                    var audioData = response.Content.ReadAsByteArrayAsync().Result;
+                    byte[] audioData = response.Content.ReadAsByteArrayAsync().Result;
                     _tensor = LoadAudioFromBytes(audioData);
                 }
                 else
                 {
                     // Handle local file
-                    var audioData = File.ReadAllBytes(_path);
+                    byte[] audioData = File.ReadAllBytes(_path);
                     _tensor = LoadAudioFromBytes(audioData);
                 }
                 return _tensor;
@@ -61,8 +61,8 @@ namespace SmolConv.Models
 
             if (_tensor != null)
             {
-                var tempDir = Path.GetTempPath();
-                var fileName = $"{Guid.NewGuid()}.wav";
+                string tempDir = Path.GetTempPath();
+                string fileName = $"{Guid.NewGuid()}.wav";
                 _path = Path.Combine(tempDir, fileName);
                 
                 // Save audio to file (simplified - would need proper audio library)

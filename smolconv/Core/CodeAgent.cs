@@ -124,15 +124,15 @@ namespace SmolConv.Core
     ActionStep actionStep,
     [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            var memoryMessages = Memory.ToMessages();
-            var inputMessages = new List<ChatMessage>(memoryMessages);
+            List<ChatMessage> memoryMessages = Memory.ToMessages();
+            List<ChatMessage> inputMessages = new List<ChatMessage>(memoryMessages);
 
             // --- Build completion options (no yields here) ---
-            var stopSequences = new List<string> { "Observation:", "Calling tools:" };
+            List<string> stopSequences = new List<string> { "Observation:", "Calling tools:" };
             if (_codeBlockTags.Item2 != _codeBlockTags.Item1)
                 stopSequences.Add(_codeBlockTags.Item2);
 
-            var options = new ModelCompletionOptions { StopSequences = stopSequences };
+            ModelCompletionOptions options = new ModelCompletionOptions { StopSequences = stopSequences };
 
             ChatMessage chatMessage;
 
@@ -140,8 +140,8 @@ namespace SmolConv.Core
             if (_streamOutputs)
             {
                 // No catch around this loop: yielding inside try/catch is illegal.
-                var deltas = new List<ChatMessageStreamDelta>();
-                await foreach (var delta in _model.GenerateStream(inputMessages, options, cancellationToken))
+                List<ChatMessageStreamDelta> deltas = new List<ChatMessageStreamDelta>();
+                await foreach (ChatMessageStreamDelta delta in _model.GenerateStream(inputMessages, options, cancellationToken))
                 {
                     deltas.Add(delta);
                     yield return delta;                    // ✅ allowed (not in catch/finally)
@@ -162,7 +162,7 @@ namespace SmolConv.Core
                 }
             }
 
-            var outputText = chatMessage.Content?.ToString() ?? string.Empty;
+            string outputText = chatMessage.Content?.ToString() ?? string.Empty;
 
             // --- Phase 2: Parse code (with catch), but DO NOT yield inside try/catch ---
             string codeAction;
@@ -170,7 +170,7 @@ namespace SmolConv.Core
             {
                 if (_useStructuredOutputsInternally)
                 {
-                    var parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(outputText);
+                    Dictionary<string, object>? parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(outputText);
                     codeAction = parsed?["code"]?.ToString() ?? string.Empty;
                     codeAction = ExtractCodeFromText(codeAction) ?? codeAction;
                 }
@@ -187,7 +187,7 @@ namespace SmolConv.Core
             }
 
             // Prepare items to yield AFTER try/catch blocks
-            var toolCall = new ToolCall("python_interpreter", codeAction, $"call_{Memory.Steps.Count}");
+            ToolCall toolCall = new ToolCall("python_interpreter", codeAction, $"call_{Memory.Steps.Count}");
             ActionOutput? actionOutputToYield = null;
 
             // --- Phase 3: Execute code (with catch), buffer result ---
@@ -195,13 +195,13 @@ namespace SmolConv.Core
             {
                 _logger.LogCode("Executing parsed code:", codeAction, LogLevel.Info);
 
-                var codeOutput = _pythonExecutor?.Execute(codeAction)
-                                 ?? throw new InvalidOperationException("Python executor not initialized");
+                PythonExecutionResult codeOutput = _pythonExecutor?.Execute(codeAction)
+                                                   ?? throw new InvalidOperationException("Python executor not initialized");
 
                 if (codeOutput.Error != null)
                     throw codeOutput.Error;
 
-                var truncatedOutput = TruncateContent(codeOutput.Output?.ToString() ?? string.Empty);
+                string truncatedOutput = TruncateContent(codeOutput.Output?.ToString() ?? string.Empty);
                 _logger.Log($"Out: {truncatedOutput}", LogLevel.Info);
 
                 actionOutputToYield = new ActionOutput(codeOutput.Output, codeOutput.IsFinalAnswer);
@@ -225,8 +225,8 @@ namespace SmolConv.Core
         /// <returns>Extracted code or null</returns>
         protected virtual string? ExtractCodeFromText(string text)
         {
-            var pattern = $@"{Regex.Escape(_codeBlockTags.Item1)}(.*?){Regex.Escape(_codeBlockTags.Item2)}";
-            var matches = Regex.Matches(text, pattern, RegexOptions.Singleline);
+            string pattern = $@"{Regex.Escape(_codeBlockTags.Item1)}(.*?){Regex.Escape(_codeBlockTags.Item2)}";
+            MatchCollection matches = Regex.Matches(text, pattern, RegexOptions.Singleline);
 
             if (matches.Count > 0)
             {
@@ -243,7 +243,7 @@ namespace SmolConv.Core
         /// <returns>Parsed code</returns>
         protected virtual string ParseCodeBlobs(string text)
         {
-            var matches = ExtractCodeFromText(text);
+            string? matches = ExtractCodeFromText(text);
             if (matches != null) return matches;
 
             // Fallback to markdown pattern
@@ -283,7 +283,7 @@ namespace SmolConv.Core
             const int maxLength = 20000;
             if (content.Length <= maxLength) return content;
 
-            var halfLength = maxLength / 2;
+            int halfLength = maxLength / 2;
             return content.Substring(0, halfLength) +
                    $"\n..._Content truncated to stay below {maxLength} characters_...\n" +
                    content.Substring(content.Length - halfLength);
@@ -296,7 +296,7 @@ namespace SmolConv.Core
         /// <returns>Agglomerated message</returns>
         protected virtual ChatMessage AgglomerateStreamDeltas(List<ChatMessageStreamDelta> deltas)
         {
-            var content = string.Join("", deltas.Select(d => d.Content ?? ""));
+            string content = string.Join("", deltas.Select(d => d.Content ?? ""));
             return new ChatMessage(MessageRole.Assistant, content, content);
         }
 
@@ -308,8 +308,8 @@ namespace SmolConv.Core
         /// <returns>Populated template</returns>
         protected virtual string PopulateTemplate(string template, Dictionary<string, object> variables)
         {
-            var result = template;
-            foreach (var kvp in variables)
+            string result = template;
+            foreach (KeyValuePair<string, object> kvp in variables)
             {
                 result = result.Replace($"{{{{{kvp.Key}}}}}", kvp.Value?.ToString() ?? "");
             }

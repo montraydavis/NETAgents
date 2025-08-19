@@ -15,7 +15,7 @@ namespace SmolConv.Models
 
         public override List<ChatMessage> ToMessages(bool summaryMode = false)
         {
-            var content = new List<Dictionary<string, object>>
+            List<Dictionary<string, object>> content = new List<Dictionary<string, object>>
             {
                 new() { ["type"] = "text", ["text"] = Task }
             };

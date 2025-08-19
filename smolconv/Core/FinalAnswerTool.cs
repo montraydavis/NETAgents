@@ -40,7 +40,7 @@ namespace SmolConv.Core
         /// <returns>The final answer</returns>
         protected override object? Forward(object?[]? args, Dictionary<string, object>? kwargs)
         {
-            if (kwargs?.TryGetValue("answer", out var answer) == true)
+            if (kwargs?.TryGetValue("answer", out object? answer) == true)
             {
                 return answer;
             }

@@ -2,8 +2,9 @@ using NETAgents.Tools.Processing;
 using NETAgents.Tools.Processing.Services;
 using Microsoft.Extensions.Options;
 using NETAgents.Tools.Processing.Cache;
+using NETAgents.Tools.Processing.Models.Ast;
 
-var builder = Host.CreateApplicationBuilder(args);
+HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
 // Configure processing options
 builder.Services.Configure<ProcessingOptions>(
@@ -22,7 +23,7 @@ builder.Services.AddSingleton<ICacheService, FileBasedCacheService>();
 // Register the multi-level worker service
 builder.Services.AddHostedService<CachedMultiLevelWorker>();
 
-var host = builder.Build();
+IHost host = builder.Build();
 
 // Start the application
 await host.StartAsync();
@@ -31,14 +32,14 @@ await host.StartAsync();
 Console.WriteLine("Application started. Waiting for initial file processing...");
 
 // Now check the cache after some processing has occurred
-var cacheService = host.Services.GetRequiredService<ICacheService>();
-var stats = await cacheService.GetStatisticsAsync();
+ICacheService cacheService = host.Services.GetRequiredService<ICacheService>();
+CacheStatistics stats = await cacheService.GetStatisticsAsync();
 
-var asts = await cacheService.GetAllAstNodesAsync();
-var domains = await cacheService.GetAllDomainsAsync();
+QueryResult<AstQueryResult> asts = await cacheService.GetAllAstNodesAsync();
+QueryResult<DomainResult> domains = await cacheService.GetAllDomainsAsync();
 
-var aa = asts.Items.ToArray();
-var dd = domains.Items.ToArray();
+AstQueryResult[] aa = asts.Items.ToArray();
+DomainResult[] dd = domains.Items.ToArray();
 
 Console.WriteLine($"Cache Statistics:");
 Console.WriteLine($"  Total Files: {stats.TotalFiles}");
@@ -55,7 +56,7 @@ if (stats.ProcessedFiles > 0)
     if (asts.Items.Any())
     {
         Console.WriteLine("\nSample AST Nodes:");
-        foreach (var ast in asts.Items.Take(3))
+        foreach (AstQueryResult ast in asts.Items.Take(3))
         {
             Console.WriteLine($"  - {ast.Name} ({ast.Type}) in {ast.FilePath}");
         }
@@ -64,7 +65,7 @@ if (stats.ProcessedFiles > 0)
     if (domains.Items.Any())
     {
         Console.WriteLine("\nSample Domains:");
-        foreach (var domain in domains.Items.Take(3))
+        foreach (DomainResult domain in domains.Items.Take(3))
         {
             Console.WriteLine($"  - {domain.Name} ({domain.Reasoning})");
         }

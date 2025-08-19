@@ -21,7 +21,7 @@ namespace SmolConv.Models
             // If the class has defined outputs, we can map directly according to the class definition
             if (!string.IsNullOrEmpty(outputType) && _agentTypeMapping.ContainsKey(outputType))
             {
-                var agentType = _agentTypeMapping[outputType];
+                Type agentType = _agentTypeMapping[outputType];
                 return (AgentType?)Activator.CreateInstance(agentType, output);
             }
 
@@ -49,7 +49,7 @@ namespace SmolConv.Models
 
         public static (object?[] args, Dictionary<string, object?> kwargs) HandleAgentInputTypes(params object?[] args)
         {
-            var processedArgs = args.Select(arg => arg is AgentType agentType ? agentType.ToRaw() : arg).ToArray();
+            object?[] processedArgs = args.Select(arg => arg is AgentType agentType ? agentType.ToRaw() : arg).ToArray();
             return (processedArgs, new Dictionary<string, object?>());
         }
 
@@ -62,8 +62,8 @@ namespace SmolConv.Models
                 return (args ?? Array.Empty<object>(), new Dictionary<string, object>());
             }
             
-            var processedArgs = args?.Select(arg => arg is AgentType agentType ? agentType.ToRaw() : arg).ToArray() ?? Array.Empty<object>();
-            var processedKwargs = kwargs.ToDictionary(
+            object?[] processedArgs = args?.Select(arg => arg is AgentType agentType ? agentType.ToRaw() : arg).ToArray() ?? Array.Empty<object>();
+            Dictionary<string, object> processedKwargs = kwargs.ToDictionary(
                 kvp => kvp.Key, 
                 kvp => kvp.Value is AgentType agentType ? agentType.ToRaw() : kvp.Value);
             

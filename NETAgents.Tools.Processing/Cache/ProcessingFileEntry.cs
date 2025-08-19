@@ -166,10 +166,10 @@ public class FileBasedCacheService : ICacheService, IDisposable
         
         try
         {
-            var fileInfo = new FileInfo(job.FilePath);
-            var fileHash = await CalculateFileHashAsync(job.FilePath);
+            FileInfo fileInfo = new FileInfo(job.FilePath);
+            string fileHash = await CalculateFileHashAsync(job.FilePath);
             
-            var entry = new ProcessedFileEntry
+            ProcessedFileEntry entry = new ProcessedFileEntry
             {
                 Id = job.Id,
                 FilePath = job.FilePath,
@@ -181,9 +181,9 @@ public class FileBasedCacheService : ICacheService, IDisposable
             };
 
             // Process each level's data
-            foreach (var (level, result) in job.Results)
+            foreach ((ProcessingLevel level, ProcessingResult result) in job.Results)
             {
-                var levelData = new ProcessedLevelData
+                ProcessedLevelData levelData = new ProcessedLevelData
                 {
                     Content = result.Content ?? string.Empty,
                     ProcessedAt = result.ProcessedAt,
@@ -229,14 +229,14 @@ public class FileBasedCacheService : ICacheService, IDisposable
     {
         try
         {
-            var cacheKey = GenerateCacheKey(filePath);
-            var cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
+            string cacheKey = GenerateCacheKey(filePath);
+            string cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
             
             if (!File.Exists(cacheFilePath))
                 return false;
             
-            var jsonContent = await File.ReadAllTextAsync(cacheFilePath, cancellationToken);
-            var cachedEntry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
+            string jsonContent = await File.ReadAllTextAsync(cacheFilePath, cancellationToken);
+            ProcessedFileEntry? cachedEntry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
             
             if (cachedEntry == null)
                 return false;
@@ -311,10 +311,10 @@ public class FileBasedCacheService : ICacheService, IDisposable
         {
             // Don't use locks for file operations - they are already thread-safe
             // Use Directory.GetFiles for faster statistics without loading all content
-            var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
-            var totalFiles = cacheFiles.Length;
+            string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+            int totalFiles = cacheFiles.Length;
             
-            var stats = new CacheStatistics
+            CacheStatistics stats = new CacheStatistics
             {
                 TotalFiles = totalFiles,
                 ProcessedFiles = 0, // Will be calculated if needed
@@ -325,7 +325,7 @@ public class FileBasedCacheService : ICacheService, IDisposable
             if (totalFiles > 0)
             {
                 // Calculate basic file statistics without deserializing
-                var fileInfos = cacheFiles.Select(f => new FileInfo(f)).ToList();
+                List<FileInfo> fileInfos = cacheFiles.Select(f => new FileInfo(f)).ToList();
                 stats.TotalSizeBytes = fileInfos.Sum(f => f.Length);
                 stats.OldestEntry = fileInfos.Min(f => f.LastWriteTimeUtc);
                 stats.NewestEntry = fileInfos.Max(f => f.LastWriteTimeUtc);
@@ -334,12 +334,12 @@ public class FileBasedCacheService : ICacheService, IDisposable
                 if (totalFiles <= 100)
                 {
                     // For small cache, load all files for detailed stats
-                    var queryResult = await _fileQueryService.GetAllProcessedFilesAsync();
-                    var entries = queryResult.Items;
+                    QueryResult<ProcessedFileEntry> queryResult = await _fileQueryService.GetAllProcessedFilesAsync();
+                    List<ProcessedFileEntry> entries = queryResult.Items;
                     stats.ProcessedFiles = entries.Count(e => e.Status == ProcessingStatus.Completed);
                     stats.FailedFiles = entries.Count(e => e.Status == ProcessingStatus.Failed);
                     
-                    foreach (var level in Enum.GetValues<ProcessingLevel>())
+                    foreach (ProcessingLevel level in Enum.GetValues<ProcessingLevel>())
                     {
                         stats.LevelCounts[level] = entries.Count(e => e.LevelData.ContainsKey(level));
                     }
@@ -351,7 +351,7 @@ public class FileBasedCacheService : ICacheService, IDisposable
                     stats.FailedFiles = 0; // Assume minimal failures
                     
                     // Set default level counts based on typical processing
-                    foreach (var level in Enum.GetValues<ProcessingLevel>())
+                    foreach (ProcessingLevel level in Enum.GetValues<ProcessingLevel>())
                     {
                         stats.LevelCounts[level] = totalFiles; // Assume all files have all levels
                     }
@@ -381,19 +381,19 @@ public class FileBasedCacheService : ICacheService, IDisposable
     {
         if (_disposed) return;
         
-        var cutoffTime = DateTime.UtcNow - maxAge;
-        var removedCount = 0;
+        DateTime cutoffTime = DateTime.UtcNow - maxAge;
+        int removedCount = 0;
         
         try
         {
             // Don't use locks for file operations - they are already thread-safe
-            var queryResult = await _fileQueryService.GetAllProcessedFilesAsync();
-            var allFiles = queryResult.Items;
-            var staleEntries = allFiles
+            QueryResult<ProcessedFileEntry> queryResult = await _fileQueryService.GetAllProcessedFilesAsync();
+            List<ProcessedFileEntry> allFiles = queryResult.Items;
+            List<ProcessedFileEntry> staleEntries = allFiles
                 .Where(e => e.ProcessedAt < cutoffTime)
                 .ToList();
 
-            foreach (var entry in staleEntries)
+            foreach (ProcessedFileEntry entry in staleEntries)
             {
                 await RemoveFromCacheAsync(entry.FilePath);
                 removedCount++;
@@ -415,10 +415,10 @@ public class FileBasedCacheService : ICacheService, IDisposable
     {
         try
         {
-            var cacheKey = GenerateCacheKey(entry.FilePath);
-            var cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
+            string cacheKey = GenerateCacheKey(entry.FilePath);
+            string cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
             
-            var jsonContent = JsonSerializer.Serialize(entry, new JsonSerializerOptions
+            string jsonContent = JsonSerializer.Serialize(entry, new JsonSerializerOptions
             {
                 WriteIndented = true
             });
@@ -436,14 +436,14 @@ public class FileBasedCacheService : ICacheService, IDisposable
     {
         try
         {
-            var cacheKey = GenerateCacheKey(filePath);
-            var cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
+            string cacheKey = GenerateCacheKey(filePath);
+            string cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
             
             if (!File.Exists(cacheFilePath))
                 return null;
 
-            var jsonContent = await File.ReadAllTextAsync(cacheFilePath);
-            var entry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
+            string jsonContent = await File.ReadAllTextAsync(cacheFilePath);
+            ProcessedFileEntry? entry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
             
             return entry;
         }
@@ -456,8 +456,8 @@ public class FileBasedCacheService : ICacheService, IDisposable
 
     private string GenerateCacheKey(string filePath)
     {
-        using var sha256 = SHA256.Create();
-        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(filePath));
+        using SHA256 sha256 = SHA256.Create();
+        byte[] hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(filePath));
         return Convert.ToHexString(hashBytes).ToLower();
     }
 
@@ -467,8 +467,8 @@ public class FileBasedCacheService : ICacheService, IDisposable
     {
         try
         {
-            var cacheKey = GenerateCacheKey(filePath);
-            var cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
+            string cacheKey = GenerateCacheKey(filePath);
+            string cacheFilePath = Path.Combine(_cacheDirectory, $"{cacheKey}.json");
             
             if (File.Exists(cacheFilePath))
             {
@@ -487,7 +487,7 @@ public class FileBasedCacheService : ICacheService, IDisposable
 
     private async Task<Dictionary<string, object>> IndexLevelDataAsync(ProcessingLevel level, string content)
     {
-        var indexedData = new Dictionary<string, object>();
+        Dictionary<string, object> indexedData = new Dictionary<string, object>();
 
         try
         {
@@ -516,14 +516,14 @@ public class FileBasedCacheService : ICacheService, IDisposable
         try
         {
             // Use more lenient JSON parsing options
-            var options = new JsonSerializerOptions
+            JsonSerializerOptions options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 AllowTrailingCommas = true,
                 ReadCommentHandling = JsonCommentHandling.Skip
             };
             
-            var astData = JsonSerializer.Deserialize<AstCompilationUnit>(astContent, options);
+            AstCompilationUnit? astData = JsonSerializer.Deserialize<AstCompilationUnit>(astContent, options);
             if (astData == null) return;
 
             indexedData["namespace"] = astData.Namespace ?? string.Empty;
@@ -551,14 +551,14 @@ public class FileBasedCacheService : ICacheService, IDisposable
         try
         {
             // Use more lenient JSON parsing options
-            var options = new JsonSerializerOptions
+            JsonSerializerOptions options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 AllowTrailingCommas = true,
                 ReadCommentHandling = JsonCommentHandling.Skip
             };
             
-            var domainData = JsonSerializer.Deserialize<DomainKeywordsResponse>(domainContent, options);
+            DomainKeywordsResponse? domainData = JsonSerializer.Deserialize<DomainKeywordsResponse>(domainContent, options);
             if (domainData?.Domains == null) return;
 
             indexedData["domainCount"] = domainData.Domains.Count;
@@ -579,9 +579,9 @@ public class FileBasedCacheService : ICacheService, IDisposable
 
     private async Task<string> CalculateFileHashAsync(string filePath)
     {
-        using var sha256 = SHA256.Create();
-        using var stream = File.OpenRead(filePath);
-        var hash = await sha256.ComputeHashAsync(stream);
+        using SHA256 sha256 = SHA256.Create();
+        using FileStream stream = File.OpenRead(filePath);
+        byte[] hash = await sha256.ComputeHashAsync(stream);
         return Convert.ToBase64String(hash);
     }
 

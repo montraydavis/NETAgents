@@ -64,8 +64,8 @@ namespace SmolConv.Core
         {
             if (node.Name != null)
             {
-                var namespaceName = node.Name.ToString();
-                var alias = node.Alias?.Name.Identifier.ValueText ?? namespaceName.Split('.').Last();
+                string namespaceName = node.Name.ToString();
+                string alias = node.Alias?.Name.Identifier.ValueText ?? namespaceName.Split('.').Last();
                 UsingDirectives[alias] = namespaceName;
             }
             base.VisitUsingDirective(node);
@@ -91,7 +91,7 @@ namespace SmolConv.Core
             // Track using statement variables
             if (node.Declaration != null)
             {
-                foreach (var variable in node.Declaration.Variables)
+                foreach (VariableDeclaratorSyntax variable in node.Declaration.Variables)
                 {
                     AssignedNames.Add(variable.Identifier.ValueText);
                 }
@@ -119,7 +119,7 @@ namespace SmolConv.Core
         {
             if (node.Declaration != null)
             {
-                foreach (var variable in node.Declaration.Variables)
+                foreach (VariableDeclaratorSyntax variable in node.Declaration.Variables)
                 {
                     AssignedNames.Add(variable.Identifier.ValueText);
                 }
@@ -145,7 +145,7 @@ namespace SmolConv.Core
 
         public override void VisitIdentifierName(IdentifierNameSyntax node)
         {
-            var identifier = node.Identifier.ValueText;
+            string identifier = node.Identifier.ValueText;
             
             if (!IsValidIdentifier(identifier))
             {
@@ -159,7 +159,7 @@ namespace SmolConv.Core
         {
             if (node.Expression is IdentifierNameSyntax identifier)
             {
-                var name = identifier.Identifier.ValueText;
+                string name = identifier.Identifier.ValueText;
                 if (!IsValidIdentifier(name))
                 {
                     Errors.Add($"Method '{name}' is undefined.");
@@ -200,7 +200,7 @@ namespace SmolConv.Core
             if (!typeof(Tool).IsAssignableFrom(toolType))
                 throw new ArgumentException($"Type {toolType.Name} is not a Tool", nameof(toolType));
 
-            var errors = new List<string>();
+            List<string> errors = new List<string>();
 
             // Validate class structure using reflection
             ValidateClassStructure(toolType, errors);
@@ -240,12 +240,12 @@ namespace SmolConv.Core
 
         private static void ValidateConstructorParameters(Type toolType, List<string> errors)
         {
-            var constructors = toolType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            ConstructorInfo[] constructors = toolType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
             
-            foreach (var constructor in constructors)
+            foreach (ConstructorInfo constructor in constructors)
             {
-                var parameters = constructor.GetParameters();
-                var nonDefaultParams = parameters.Where(p => !p.HasDefaultValue && p.ParameterType != typeof(object[])).ToList();
+                ParameterInfo[] parameters = constructor.GetParameters();
+                List<ParameterInfo> nonDefaultParams = parameters.Where(p => !p.HasDefaultValue && p.ParameterType != typeof(object[])).ToList();
                 
                 if (nonDefaultParams.Count > 0)
                 {
@@ -256,11 +256,11 @@ namespace SmolConv.Core
 
         private static void ValidateRequiredProperties(Type toolType, List<string> errors)
         {
-            var requiredProperties = new[] { "Name", "Description", "Inputs", "OutputType" };
+            string[] requiredProperties = new[] { "Name", "Description", "Inputs", "OutputType" };
             
-            foreach (var propName in requiredProperties)
+            foreach (string propName in requiredProperties)
             {
-                var property = toolType.GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo? property = toolType.GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
                 if (property == null)
                 {
                     errors.Add($"Required property '{propName}' is missing");
@@ -290,7 +290,7 @@ namespace SmolConv.Core
             // Validate Name property value if accessible
             try
             {
-                var nameProperty = toolType.GetProperty("Name");
+                PropertyInfo? nameProperty = toolType.GetProperty("Name");
                 if (nameProperty?.GetValue(Activator.CreateInstance(toolType)) is string nameValue)
                 {
                     if (!IsValidToolName(nameValue))
@@ -314,9 +314,9 @@ namespace SmolConv.Core
             // 3. Store source code metadata with tools
             
             // For now, we'll do basic reflection-based validation
-            var methods = toolType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            MethodInfo[] methods = toolType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
             
-            foreach (var method in methods)
+            foreach (MethodInfo method in methods)
             {
                 // Skip special methods
                 if (method.IsSpecialName || method.Name.StartsWith("get_") || method.Name.StartsWith("set_"))
@@ -335,7 +335,7 @@ namespace SmolConv.Core
             // Validate that Forward method has reasonable signature
             if (method.Name == "Forward")
             {
-                var parameters = method.GetParameters();
+                ParameterInfo[] parameters = method.GetParameters();
                 
                 // Should have args and kwargs parameters typically
                 if (parameters.Length == 0)
@@ -354,16 +354,16 @@ namespace SmolConv.Core
         /// <returns>List of validation errors</returns>
         public static List<string> ValidateSourceCode(string sourceCode, HashSet<string> classAttributes, bool checkImports = true)
         {
-            var errors = new List<string>();
+            List<string> errors = new List<string>();
             
             try
             {
-                var tree = CSharpSyntaxTree.ParseText(sourceCode);
-                var root = tree.GetRoot();
+                SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceCode);
+                SyntaxNode root = tree.GetRoot();
 
                 // Check for compilation errors first
-                var diagnostics = tree.GetDiagnostics();
-                foreach (var diagnostic in diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+                IEnumerable<Diagnostic> diagnostics = tree.GetDiagnostics();
+                foreach (Diagnostic diagnostic in diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
                 {
                     errors.Add($"Syntax error: {diagnostic.GetMessage()}");
                 }
@@ -371,7 +371,7 @@ namespace SmolConv.Core
                 if (errors.Count == 0)
                 {
                     // Perform semantic validation
-                    var checker = new MethodChecker(classAttributes, checkImports);
+                    MethodChecker checker = new MethodChecker(classAttributes, checkImports);
                     checker.Visit(root);
                     errors.AddRange(checker.Errors);
                 }
@@ -399,7 +399,7 @@ namespace SmolConv.Core
                 return false;
 
             // Must not be a C# keyword
-            var keywords = new HashSet<string>
+            HashSet<string> keywords = new HashSet<string>
             {
                 "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
                 "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
@@ -422,13 +422,13 @@ namespace SmolConv.Core
         /// <returns>List of validation errors</returns>
         public static List<string> ValidateInputSpecifications(Dictionary<string, Dictionary<string, object>> inputs)
         {
-            var errors = new List<string>();
-            var authorizedTypes = new HashSet<string>
+            List<string> errors = new List<string>();
+            HashSet<string> authorizedTypes = new HashSet<string>
             {
                 "string", "boolean", "integer", "number", "image", "audio", "array", "object", "any", "null"
             };
 
-            foreach (var (inputName, inputSpec) in inputs)
+            foreach ((string inputName, Dictionary<string, object> inputSpec) in inputs)
             {
                 if (!inputSpec.ContainsKey("type") || !inputSpec.ContainsKey("description"))
                 {
@@ -436,7 +436,7 @@ namespace SmolConv.Core
                     continue;
                 }
 
-                var inputType = inputSpec["type"];
+                object inputType = inputSpec["type"];
                 switch (inputType)
                 {
                     case string singleType:
@@ -446,7 +446,7 @@ namespace SmolConv.Core
                         }
                         break;
                     case string[] multipleTypes:
-                        var invalidTypes = multipleTypes.Where(t => !authorizedTypes.Contains(t)).ToList();
+                        List<string> invalidTypes = multipleTypes.Where(t => !authorizedTypes.Contains(t)).ToList();
                         if (invalidTypes.Count > 0)
                         {
                             errors.Add($"Input '{inputName}' contains invalid types: {string.Join(", ", invalidTypes)}");
@@ -482,7 +482,7 @@ namespace SmolConv.Core
                 CheckConstructorParameters(node);
             }
             
-            var oldContext = _inMethod;
+            bool oldContext = _inMethod;
             _inMethod = true;
             base.VisitMethodDeclaration(node);
             _inMethod = oldContext;
@@ -492,7 +492,7 @@ namespace SmolConv.Core
         {
             CheckConstructorParameters(node.ParameterList);
             
-            var oldContext = _inMethod;
+            bool oldContext = _inMethod;
             _inMethod = true;
             base.VisitConstructorDeclaration(node);
             _inMethod = oldContext;
@@ -524,7 +524,7 @@ namespace SmolConv.Core
         {
             if (!_inMethod)
             {
-                foreach (var variable in node.Declaration.Variables)
+                foreach (VariableDeclaratorSyntax variable in node.Declaration.Variables)
                 {
                     ClassAttributes.Add(variable.Identifier.ValueText);
                     
@@ -548,7 +548,7 @@ namespace SmolConv.Core
 
         private void CheckConstructorParameters(ParameterListSyntax parameterList)
         {
-            foreach (var parameter in parameterList.Parameters)
+            foreach (ParameterSyntax parameter in parameterList.Parameters)
             {
                 if (parameter.Default == null && parameter.Identifier.ValueText != "this")
                 {
@@ -567,7 +567,7 @@ namespace SmolConv.Core
             {
                 if (literal.Token.IsKind(SyntaxKind.StringLiteralToken))
                 {
-                    var nameValue = literal.Token.ValueText;
+                    string nameValue = literal.Token.ValueText;
                     if (!ToolValidator.IsValidToolName(nameValue))
                     {
                         InvalidAttributes.Add($"Property 'Name' must be a valid identifier and not a reserved keyword, found '{nameValue}'");
@@ -658,7 +658,7 @@ namespace SmolConv.Core
         /// <param name="level">Log level</param>
         public void LogMarkdown(string content, string? title = null, LogLevel level = LogLevel.Info)
         {
-            var message = title != null ? $"{title}\n{content}" : content;
+            string message = title != null ? $"{title}\n{content}" : content;
             Log(message, level);
         }
 
@@ -692,7 +692,7 @@ namespace SmolConv.Core
         /// <param name="level">Log level</param>
         public void LogTask(string content, string subtitle, string? title = null, LogLevel level = LogLevel.Info)
         {
-            var taskTitle = title != null ? $"New run - {title}" : "New run";
+            string taskTitle = title != null ? $"New run - {title}" : "New run";
             Log($"┌─ {taskTitle}\n│  {subtitle}\n│  {EscapeMarkdown(content)}\n└─", level);
         }
 
@@ -705,7 +705,7 @@ namespace SmolConv.Core
         {
             if (level <= _level)
             {
-                var json = JsonSerializer.Serialize(messages, new JsonSerializerOptions { WriteIndented = true });
+                string json = JsonSerializer.Serialize(messages, new JsonSerializerOptions { WriteIndented = true });
                 Log($"Messages:\n{json}", level);
             }
         }

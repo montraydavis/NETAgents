@@ -24,7 +24,7 @@ namespace SmolConv.Core
         {
             lock (_lockObject)
             {
-                var stepType = typeof(T);
+                Type stepType = typeof(T);
                 if (!_callbacks.ContainsKey(stepType))
                 {
                     _callbacks[stepType] = new List<Action<MemoryStep, object>>();
@@ -43,10 +43,10 @@ namespace SmolConv.Core
         {
             lock (_lockObject)
             {
-                var stepType = step.GetType();
-                if (_callbacks.TryGetValue(stepType, out var callbacks))
+                Type stepType = step.GetType();
+                if (_callbacks.TryGetValue(stepType, out List<Action<MemoryStep, object>>? callbacks))
                 {
-                    foreach (var callback in callbacks)
+                    foreach (Action<MemoryStep, object> callback in callbacks)
                     {
                         try
                         {

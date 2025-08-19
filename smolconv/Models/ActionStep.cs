@@ -30,7 +30,7 @@ namespace SmolConv.Models
 
         public override List<ChatMessage> ToMessages(bool summaryMode = false)
         {
-            var messages = new List<ChatMessage>();
+            List<ChatMessage> messages = new List<ChatMessage>();
 
             if (ModelOutputMessage != null)
             {
@@ -39,7 +39,7 @@ namespace SmolConv.Models
 
             if (!string.IsNullOrEmpty(Observations))
             {
-                var content = new List<Dictionary<string, object>>
+                List<Dictionary<string, object>> content = new List<Dictionary<string, object>>
                 {
                     new() { ["type"] = "text", ["text"] = Observations }
                 };

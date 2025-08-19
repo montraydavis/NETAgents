@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using NETAgents.Tools.Processing.Models;
 using NETAgents.Tools.Processing.Models.Ast;
@@ -30,8 +32,8 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
             if (_model != null)
                 return _model;
 
-            var endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT");
-            var apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY");
+            string? endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT");
+            string? apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY");
             
             if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(apiKey))
             {
@@ -48,7 +50,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
     {
         _logger.LogInformation("Processing {Level} for file: {FilePath}", level, job.FilePath);
         
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
         
         try
         {
@@ -59,11 +61,11 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
                 _ => throw new ArgumentException($"Unsupported processing level: {level}")
             };
             
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_options.ProcessingTimeout);
             
-            var model = GetOrCreateModel();
-            var result = await model.GenerateAsync(
+            Model model = GetOrCreateModel();
+            ChatMessage result = await model.GenerateAsync(
                 new List<ChatMessage> { new ChatMessage(MessageRole.User, prompt) },
                 null,
                 timeoutCts.Token
@@ -71,7 +73,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
             
             stopwatch.Stop();
             
-            var content = result.Content?.ToString() ?? string.Empty;
+            string content = result.Content?.ToString() ?? string.Empty;
             
             // Validate result based on level
             if (level == ProcessingLevel.DomainKeywords)
@@ -92,7 +94,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
             // Basic JSON validation to catch obvious malformed JSON
             try
             {
-                using var doc = JsonDocument.Parse(content);
+                using JsonDocument doc = JsonDocument.Parse(content);
             }
             catch (JsonException jsonEx)
             {
@@ -121,7 +123,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
         catch (OperationCanceledException)
         {
             stopwatch.Stop();
-            var errorMessage = $"{level} processing timed out after {_options.ProcessingTimeout.TotalMilliseconds}ms";
+            string errorMessage = $"{level} processing timed out after {_options.ProcessingTimeout.TotalMilliseconds}ms";
             _logger.LogError(errorMessage + " for {FilePath}", job.FilePath);
             
             return new ProcessingResult
@@ -365,7 +367,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
     {
         try
         {
-            var response = JsonSerializer.Deserialize<DomainKeywordsResponse>(jsonContent, new JsonSerializerOptions
+            DomainKeywordsResponse? response = JsonSerializer.Deserialize<DomainKeywordsResponse>(jsonContent, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             });
@@ -375,7 +377,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
                 throw new InvalidOperationException("Domain keywords response must contain at least one domain");
             }
             
-            foreach (var domain in response.Domains)
+            foreach (DomainKeyword domain in response.Domains)
             {
                 if (string.IsNullOrWhiteSpace(domain.Name))
                     throw new InvalidOperationException("Domain name cannot be empty");
@@ -394,7 +396,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
     {
         try
         {
-            var root = JsonSerializer.Deserialize<AstCompilationUnit>(jsonContent, new JsonSerializerOptions
+            AstCompilationUnit? root = JsonSerializer.Deserialize<AstCompilationUnit>(jsonContent, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 AllowTrailingCommas = true,
@@ -450,13 +452,13 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
     
     private static void ValidateMembers<T>(List<T> types) where T : class
     {
-        foreach (var type in types)
+        foreach (T type in types)
         {
             // Use reflection to get the Members property from each type
-            var membersProperty = type.GetType().GetProperty("Members");
+            PropertyInfo? membersProperty = type.GetType().GetProperty("Members");
             if (membersProperty?.GetValue(type) is List<AstMember> members)
             {
-                foreach (var member in members)
+                foreach (AstMember member in members)
                 {
                     if (string.IsNullOrWhiteSpace(member.Kind))
                         throw new InvalidOperationException("AST member must have a valid kind");
@@ -486,7 +488,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
                         if (member.Parameters == null)
                             throw new InvalidOperationException("Method/constructor must have a parameters array");
                         
-                        foreach (var param in member.Parameters)
+                        foreach (AstParameter param in member.Parameters)
                         {
                             if (string.IsNullOrWhiteSpace(param.Name))
                                 throw new InvalidOperationException("Parameter name cannot be empty");

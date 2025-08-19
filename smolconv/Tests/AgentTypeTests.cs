@@ -18,7 +18,7 @@ namespace SmolConv.Tests
         public void AgentText_ShouldBehaveLikeString()
         {
             // Test basic string behavior
-            var agentText = new AgentText("Hello World");
+            AgentText agentText = new AgentText("Hello World");
             Assert.Equal("Hello World", agentText.ToString());
             Assert.Equal("Hello World", agentText.ToRaw());
             
@@ -31,15 +31,15 @@ namespace SmolConv.Tests
         public void AgentImage_ShouldHandleDifferentInputTypes()
         {
             // Test with file path
-            var tempPath = Path.GetTempFileName() + ".png";
+            string tempPath = Path.GetTempFileName() + ".png";
             File.WriteAllBytes(tempPath, new byte[100]); // Create dummy file
             
-            var agentImage = new AgentImage(tempPath);
+            AgentImage agentImage = new AgentImage(tempPath);
             Assert.Equal(tempPath, agentImage.ToString());
             
             // Test with byte array
-            var imageBytes = new byte[100];
-            var agentImage2 = new AgentImage(imageBytes);
+            byte[] imageBytes = new byte[100];
+            AgentImage agentImage2 = new AgentImage(imageBytes);
             Assert.NotNull(agentImage2.ToRaw());
             
             // Cleanup
@@ -50,10 +50,10 @@ namespace SmolConv.Tests
         [Fact]
         public void AgentAudio_ShouldHandleSampleRate()
         {
-            var agentAudio = new AgentAudio("test.wav", 44100);
+            AgentAudio agentAudio = new AgentAudio("test.wav", 44100);
             Assert.Equal(44100, agentAudio.SampleRate);
             
-            var agentAudio2 = new AgentAudio(new ValueTuple<int, object>(22050, new byte[100]));
+            AgentAudio agentAudio2 = new AgentAudio(new ValueTuple<int, object>(22050, new byte[100]));
             Assert.Equal(22050, agentAudio2.SampleRate);
         }
 
@@ -61,26 +61,26 @@ namespace SmolConv.Tests
         public void AgentTypeMapping_ShouldHandleOutputTypes()
         {
             // Test string mapping
-            var result = AgentTypeMapping.HandleAgentOutputTypes("test", "string");
+            AgentType? result = AgentTypeMapping.HandleAgentOutputTypes("test", "string");
             Assert.IsType<AgentText>(result);
             
             // Test image mapping with byte array
-            var imageBytes = new byte[100];
-            var result2 = AgentTypeMapping.HandleAgentOutputTypes(imageBytes, "image");
+            byte[] imageBytes = new byte[100];
+            AgentType? result2 = AgentTypeMapping.HandleAgentOutputTypes(imageBytes, "image");
             Assert.IsType<AgentImage>(result2);
             
             // Test automatic type detection
-            var result3 = AgentTypeMapping.HandleAgentOutputTypes("auto detect");
+            AgentType? result3 = AgentTypeMapping.HandleAgentOutputTypes("auto detect");
             Assert.IsType<AgentText>(result3);
         }
 
         [Fact]
         public void AgentTypeMapping_ShouldHandleInputTypes()
         {
-            var agentText = new AgentText("test");
-            var agentImage = new AgentImage("test.png");
+            AgentText agentText = new AgentText("test");
+            AgentImage agentImage = new AgentImage("test.png");
             
-            var (args, kwargs) = AgentTypeMapping.HandleAgentInputTypes(agentText, agentImage, "regular string");
+            (object?[] args, Dictionary<string, object?> kwargs) = AgentTypeMapping.HandleAgentInputTypes(agentText, agentImage, "regular string");
             
             Assert.Equal(3, args.Length);
             Assert.Equal("test", args[0]);
@@ -92,15 +92,15 @@ namespace SmolConv.Tests
         public void ActionOutput_ShouldIntegrateWithAgentTypes()
         {
             // Test with typed output
-            var agentText = new AgentText("Hello");
-            var actionOutput = new ActionOutput(agentText, false);
+            AgentText agentText = new AgentText("Hello");
+            ActionOutput actionOutput = new ActionOutput(agentText, false);
             
             Assert.Equal("Hello", actionOutput.GetRawOutput());
             Assert.Equal("Hello", actionOutput.GetStringOutput());
             Assert.Equal("text", actionOutput.OutputType);
             
             // Test with automatic conversion
-            var actionOutput2 = new ActionOutput("World", false, "string");
+            ActionOutput actionOutput2 = new ActionOutput("World", false, "string");
             Assert.IsType<AgentText>(actionOutput2.TypedOutput);
             Assert.Equal("World", actionOutput2.GetRawOutput());
         }
@@ -109,11 +109,11 @@ namespace SmolConv.Tests
         public void AgentType_ShouldHandleUnknownTypes()
         {
             // Test that unknown types are handled gracefully
-            var unknownType = new TestAgentType(new { test = "value" });
+            TestAgentType unknownType = new TestAgentType(new { test = "value" });
             
             // Should not throw, but should log warning
-            var raw = unknownType.ToRaw();
-            var str = unknownType.ToString();
+            object raw = unknownType.ToRaw();
+            string str = unknownType.ToString();
             
             Assert.NotNull(raw);
             Assert.NotNull(str);

@@ -39,7 +39,7 @@ namespace SmolConv.Core.Validation
             if (!(tool is Tool t)) return;
 
             // 1. Check for unknown arguments
-            foreach (var key in arguments.Keys)
+            foreach (string key in arguments.Keys)
             {
                 if (!t.Inputs.ContainsKey(key))
                     throw new ArgumentException($"Argument '{key}' is not in the tool's input schema");
@@ -49,7 +49,7 @@ namespace SmolConv.Core.Validation
             NullableParameterHandler.ValidateNullableParameters(arguments, t.Inputs);
 
             // 3. Validate each argument against schema
-            foreach (var (key, inputSchema) in t.Inputs)
+            foreach ((string key, Dictionary<string, object> inputSchema) in t.Inputs)
             {
                 ValidateArgument(key, arguments, inputSchema);
             }
@@ -67,10 +67,10 @@ namespace SmolConv.Core.Validation
         private static void ValidateArgument(string key, Dictionary<string, object?> arguments, 
                                            Dictionary<string, object> inputSchema)
         {
-            var isNullable = inputSchema.ContainsKey("nullable") && (bool)inputSchema["nullable"];
-            var expectedType = inputSchema.TryGetValue("type", out var typeVal) ? typeVal?.ToString() : null;
+            bool isNullable = inputSchema.ContainsKey("nullable") && (bool)inputSchema["nullable"];
+            string? expectedType = inputSchema.TryGetValue("type", out object? typeVal) ? typeVal?.ToString() : null;
 
-            if (!arguments.TryGetValue(key, out var value))
+            if (!arguments.TryGetValue(key, out object? value))
             {
                 if (!isNullable)
                     throw new ArgumentException($"Required argument '{key}' is missing");
@@ -82,11 +82,11 @@ namespace SmolConv.Core.Validation
 
             if (value != null && expectedType != null)
             {
-                var actualType = GetJsonSchemaType(value.GetType());
+                string actualType = GetJsonSchemaType(value.GetType());
                 if (!IsValidType(actualType, expectedType, isNullable))
                 {
                     // Try type coercion before failing
-                    if (!TypeCoercion.TryCoerceValue(value, expectedType, out var coercedValue))
+                    if (!TypeCoercion.TryCoerceValue(value, expectedType, out object coercedValue))
                     {
                         throw new ArgumentException(
                             $"Argument '{key}' has type '{actualType}' but should be '{expectedType}'");
@@ -106,7 +106,7 @@ namespace SmolConv.Core.Validation
         /// <returns>The JSON schema type string</returns>
         private static string GetJsonSchemaType(Type type)
         {
-            if (TypeMapping.TryGetValue(type, out var jsonType))
+            if (TypeMapping.TryGetValue(type, out string? jsonType))
                 return jsonType;
 
             if (type.IsArray || typeof(System.Collections.IEnumerable).IsAssignableFrom(type))
@@ -153,9 +153,9 @@ namespace SmolConv.Core.Validation
         private static void ValidateRequiredArguments(Dictionary<string, object?> arguments, 
                                                     Dictionary<string, Dictionary<string, object>> inputs)
         {
-            foreach (var (key, schema) in inputs)
+            foreach ((string key, Dictionary<string, object> schema) in inputs)
             {
-                var isNullable = schema.ContainsKey("nullable") && (bool)schema["nullable"];
+                bool isNullable = schema.ContainsKey("nullable") && (bool)schema["nullable"];
                 if (!arguments.ContainsKey(key) && !isNullable)
                     throw new ArgumentException($"Required argument '{key}' is missing");
             }

@@ -61,14 +61,14 @@ namespace SmolConv.Core
         /// <returns>List of chat messages</returns>
         public List<ChatMessage> ToMessages(bool summaryMode = false)
         {
-            var messages = new List<ChatMessage>();
+            List<ChatMessage> messages = new List<ChatMessage>();
 
             if (_systemPrompt != null)
             {
                 messages.AddRange(_systemPrompt.ToMessages(summaryMode));
             }
 
-            foreach (var step in _steps)
+            foreach (MemoryStep step in _steps)
             {
                 messages.AddRange(step.ToMessages(summaryMode));
             }
@@ -82,14 +82,14 @@ namespace SmolConv.Core
         /// <returns>List of step dictionaries</returns>
         public List<Dictionary<string, object>> GetFullSteps()
         {
-            var result = new List<Dictionary<string, object>>();
+            List<Dictionary<string, object>> result = new List<Dictionary<string, object>>();
 
             if (_systemPrompt != null)
             {
                 result.Add(StepToDict(_systemPrompt));
             }
 
-            foreach (var step in _steps)
+            foreach (MemoryStep step in _steps)
             {
                 result.Add(StepToDict(step));
             }
@@ -104,7 +104,7 @@ namespace SmolConv.Core
         /// <returns>Dictionary representation</returns>
         private Dictionary<string, object> StepToDict(MemoryStep step)
         {
-            var dict = new Dictionary<string, object>
+            Dictionary<string, object> dict = new Dictionary<string, object>
             {
                 ["type"] = step.GetType().Name,
                 ["timing"] = new Dictionary<string, object?>(){

@@ -1,5 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using MCPCSharpRelevancy.Models;
 using MCPCSharpRelevancy.Services.Analysis;
 using SmolConv;
 using SmolConv.Core;
@@ -14,18 +15,18 @@ Directory.CreateDirectory("tmp");
 
 InitMSBuild.EnsureMSBuildLocated();
 
-var analyzer = new SolutionAnalyzer();
-var solution = await analyzer.LoadSolutionAsync("/Users/montraydavis/NETAgents/NETAgents.sln");
-var analysis = await analyzer.AnalyzeSolutionAsync(solution, false);
+SolutionAnalyzer analyzer = new SolutionAnalyzer();
+Solution solution = await analyzer.LoadSolutionAsync("/Users/montraydavis/NETAgents/NETAgents.sln");
+SourceDependencyGraph analysis = await analyzer.AnalyzeSolutionAsync(solution, false);
 
 // Process each node and generate markdown documentation
-foreach (var node in analysis.Nodes.Values)
+foreach (SourceTypeNode node in analysis.Nodes.Values)
 {
     // Filter out self-references
-    var dependencies = analysis.GetDependenciesOf(node.FullName)
+    List<SourceTypeDependency> dependencies = analysis.GetDependenciesOf(node.FullName)
         .Where(dep => dep.SourceType.ToDisplayString() != node.FullName)
         .ToList();
-    var dependents = analysis.GetDependentsOf(node.FullName)
+    List<SourceTypeDependency> dependents = analysis.GetDependentsOf(node.FullName)
         .Where(dep => dep.TargetType.ToDisplayString() != node.FullName)
         .ToList();
     
@@ -61,12 +62,12 @@ foreach (var node in analysis.Nodes.Values)
         try
         {
             // Parse the code into a syntax tree
-            var syntaxTree = CSharpSyntaxTree.ParseText(code);
-            var root = syntaxTree.GetRoot();
+            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(code);
+            SyntaxNode root = syntaxTree.GetRoot();
             
             // Format the code using Roslyn's formatter
-            var workspace = new AdhocWorkspace();
-            var formattedRoot = Formatter.Format(root, workspace);
+            AdhocWorkspace workspace = new AdhocWorkspace();
+            SyntaxNode formattedRoot = Formatter.Format(root, workspace);
             
             return formattedRoot.ToFullString();
         }
@@ -85,7 +86,7 @@ foreach (var node in analysis.Nodes.Values)
         try
         {
             // Normalize line endings
-            var normalized = markdown.Replace("\r\n", "\n").Replace("\r", "\n");
+            string normalized = markdown.Replace("\r\n", "\n").Replace("\r", "\n");
             
             // Remove excessive blank lines (more than 2 consecutive)
             normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"\n{3,}", "\n\n");
@@ -100,70 +101,70 @@ foreach (var node in analysis.Nodes.Values)
         }
     }
     
-    var markdown = $"---\n" +
-                   $"node:\n" +
-                   $"  fullName: \"{node.FullName}\"\n" +
-                   $"  filePath: \"{node.FilePath}\"\n" +
-                   $"  kind: \"{node.Symbol.TypeKind}\"\n" +
-                   $"  namespace: \"{node.Namespace}\"\n" +
-                   $"  name: \"{node.Name}\"\n" +
-                   $"  dependencyCount: {node.Dependencies.Count}\n" +
-                   $"  dependentCount: {node.Dependents.Count}\n" +
-                   $"---\n\n" +
-                   $"<!-- Source Code Path: {node.FilePath} -->\n\n" +
-                   $"# {templateData.NodeName}\n\n" +
-                   "## Source Code\n\n" +
-                   $"```csharp\n" +
-                   $"namespace {string.Join(".", templateData.NodeName.Split(".").SkipLast(1))};\n\n" +
-                   $"{FormatCSharpCode(templateData.SourceCode)}\n" +
-                   "```\n\n" +
-                   (templateData.Dependencies.Any() ? 
-                       "## Dependencies (Dependent On)\n\n" +
-                       string.Join("\n\n", templateData.Dependencies.Select(dep => 
-                           $"### {dep.TypeName}\n\n" +
-                           $"```csharp\n" +
-                           $"namespace {dep.Namespace};\n\n" +
-                           $"{FormatCSharpCode(dep.SourceCode)}\n" +
-                           "```\n\n" +
-                           $"**Dependency Type:** `{dep.DependencyType}`  \n" +
-                           $"**Member:** `{dep.Member}`\n\n" +
-                           "---\n"
-                       )) + "\n" : "") +
-                   (templateData.Dependents.Any() ? 
-                       "## Dependents (Dependent By)\n\n" +
-                       string.Join("\n\n", templateData.Dependents.Select(dep => 
-                           $"### {dep.TypeName}\n\n" +
-                           $"```csharp\n" +
-                           $"namespace {dep.Namespace};\n\n" +
-                           $"{FormatCSharpCode(dep.SourceCode)}\n" +
-                           "```\n\n" +
-                           $"**Dependency Types:** `{dep.DependencyTypes}`  \n" +
-                           $"**Members:** `{dep.Members}`\n\n" +
-                           "---\n"
-                       )) + "\n" : "") +
-                   "---\n";
+    string markdown = $"---\n" +
+                      $"node:\n" +
+                      $"  fullName: \"{node.FullName}\"\n" +
+                      $"  filePath: \"{node.FilePath}\"\n" +
+                      $"  kind: \"{node.Symbol.TypeKind}\"\n" +
+                      $"  namespace: \"{node.Namespace}\"\n" +
+                      $"  name: \"{node.Name}\"\n" +
+                      $"  dependencyCount: {node.Dependencies.Count}\n" +
+                      $"  dependentCount: {node.Dependents.Count}\n" +
+                      $"---\n\n" +
+                      $"<!-- Source Code Path: {node.FilePath} -->\n\n" +
+                      $"# {templateData.NodeName}\n\n" +
+                      "## Source Code\n\n" +
+                      $"```csharp\n" +
+                      $"namespace {string.Join(".", templateData.NodeName.Split(".").SkipLast(1))};\n\n" +
+                      $"{FormatCSharpCode(templateData.SourceCode)}\n" +
+                      "```\n\n" +
+                      (templateData.Dependencies.Any() ? 
+                          "## Dependencies (Dependent On)\n\n" +
+                          string.Join("\n\n", templateData.Dependencies.Select(dep => 
+                              $"### {dep.TypeName}\n\n" +
+                              $"```csharp\n" +
+                              $"namespace {dep.Namespace};\n\n" +
+                              $"{FormatCSharpCode(dep.SourceCode)}\n" +
+                              "```\n\n" +
+                              $"**Dependency Type:** `{dep.DependencyType}`  \n" +
+                              $"**Member:** `{dep.Member}`\n\n" +
+                              "---\n"
+                          )) + "\n" : "") +
+                      (templateData.Dependents.Any() ? 
+                          "## Dependents (Dependent By)\n\n" +
+                          string.Join("\n\n", templateData.Dependents.Select(dep => 
+                              $"### {dep.TypeName}\n\n" +
+                              $"```csharp\n" +
+                              $"namespace {dep.Namespace};\n\n" +
+                              $"{FormatCSharpCode(dep.SourceCode)}\n" +
+                              "```\n\n" +
+                              $"**Dependency Types:** `{dep.DependencyTypes}`  \n" +
+                              $"**Members:** `{dep.Members}`\n\n" +
+                              "---\n"
+                          )) + "\n" : "") +
+                      "---\n";
     
     // Format the final markdown
-    var formattedMarkdown = FormatMarkdown(markdown);
+    string formattedMarkdown = FormatMarkdown(markdown);
     
     // Write to file
-    var fileName = $"/Users/montraydavis/NETAgents/smolconv/bin/Debug/net9.0/tmp/{node.FullName.Replace("<", "").Replace(">", "").Replace(" ", "_")}_dependencies.md";
+    string fileName = $"/Users/montraydavis/NETAgents/smolconv/bin/Debug/net9.0/tmp/{node.FullName.Replace("<", "").Replace(">", "").Replace(" ", "_")}_dependencies.md";
     await File.WriteAllTextAsync(fileName, formattedMarkdown);
     
     Console.WriteLine($"Generated documentation for {node.FullName} -> {fileName}");
 }
 
-var endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT") ?? string.Empty;
-var apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY") ?? string.Empty;
-var agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1", endpoint, apiKey));
+string endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT") ?? string.Empty;
+string apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY") ?? string.Empty;
+ToolCallingAgent agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1", endpoint, apiKey));
 
 Console.WriteLine("Starting agent execution...");
-var result = await agent.RunAsync("What is the capital of paris ?");
+object result = await agent.RunAsync("What is the capital of paris ?");
 Console.WriteLine("Agent execution completed.");
 
 // Look for the final answer in the agent's memory steps
-var finalAnswer = "No final answer found";
-foreach (var step in agent.Memory.Steps)
+string finalAnswer = "No final answer found";
+foreach (MemoryStep step in agent.Memory.Steps)
 {
     if (step is ActionStep actionStep && actionStep.IsFinalAnswer && actionStep.ActionOutput != null)
     {

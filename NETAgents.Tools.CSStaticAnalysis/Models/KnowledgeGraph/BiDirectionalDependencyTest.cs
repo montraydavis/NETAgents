@@ -12,7 +12,7 @@ namespace MCPCSharpRelevancy.Models.Tests
             Console.WriteLine("=== BI-DIRECTIONAL DEPENDENCY ANALYSIS DEMO ===");
             
             // Create a mock solution and graph
-            var graph = CreateMockGraph();
+            SourceDependencyGraph? graph = CreateMockGraph();
             
             if (graph == null)
             {
@@ -32,22 +32,22 @@ namespace MCPCSharpRelevancy.Models.Tests
             
             // Show the graph-level Dependents dictionary
             Console.WriteLine($"Graph has {graph.Dependents.Count} types with dependents:");
-            foreach (var kvp in graph.Dependents)
+            foreach (KeyValuePair<string, List<SourceTypeDependency>> kvp in graph.Dependents)
             {
                 Console.WriteLine($"  {kvp.Key}: {kvp.Value.Count} dependents");
             }
 
             // Demonstrate GetDependentsFromGraph method
             Console.WriteLine("\nUsing GetDependentsFromGraph():");
-            foreach (var typeName in graph.GetTypesWithDependents())
+            foreach (string typeName in graph.GetTypesWithDependents())
             {
-                var dependents = graph.GetDependentsFromGraph(typeName);
+                IEnumerable<SourceTypeDependency> dependents = graph.GetDependentsFromGraph(typeName);
                 Console.WriteLine($"  {typeName}: {dependents.Count()} dependents");
             }
 
             // Demonstrate GetDependentCount method
             Console.WriteLine("\nUsing GetDependentCount():");
-            foreach (var typeName in graph.GetTypesWithDependents())
+            foreach (string typeName in graph.GetTypesWithDependents())
             {
                 int count = graph.GetDependentCount(typeName);
                 Console.WriteLine($"  {typeName}: {count} dependents");
@@ -64,11 +64,11 @@ namespace MCPCSharpRelevancy.Models.Tests
             Console.WriteLine("\n--- BI-DIRECTIONAL QUERIES ---");
             
             // Get dependents of a specific type
-            var userServiceDependents = graph.GetDependentsOf("UserService");
+            IEnumerable<SourceTypeDependency> userServiceDependents = graph.GetDependentsOf("UserService");
             Console.WriteLine($"UserService has {userServiceDependents.Count()} dependents");
             
             // Get dependencies of a specific type
-            var userControllerDependencies = graph.GetDependenciesOf("UserController");
+            IEnumerable<SourceTypeDependency> userControllerDependencies = graph.GetDependenciesOf("UserController");
             Console.WriteLine($"UserController has {userControllerDependencies.Count()} dependencies");
             
             // Fan-in and fan-out scores
@@ -77,18 +77,18 @@ namespace MCPCSharpRelevancy.Models.Tests
             Console.WriteLine($"UserService - Fan-In: {userServiceFanIn}, Fan-Out: {userServiceFanOut}");
             
             // High fan-in types
-            var highFanInTypes = graph.GetHighFanInTypes(2);
+            IEnumerable<SourceTypeNode> highFanInTypes = graph.GetHighFanInTypes(2);
             Console.WriteLine($"High Fan-In Types (≥2 dependents): {string.Join(", ", highFanInTypes.Select(t => t.Name))}");
             
             // High fan-out types
-            var highFanOutTypes = graph.GetHighFanOutTypes(2);
+            IEnumerable<SourceTypeNode> highFanOutTypes = graph.GetHighFanOutTypes(2);
             Console.WriteLine($"High Fan-Out Types (≥2 dependencies): {string.Join(", ", highFanOutTypes.Select(t => t.Name))}");
             
             // Stable and unstable types
-            var stableTypes = graph.GetStableTypes();
+            IEnumerable<SourceTypeNode> stableTypes = graph.GetStableTypes();
             Console.WriteLine($"Stable Types: {string.Join(", ", stableTypes.Select(t => t.Name))}");
             
-            var unstableTypes = graph.GetUnstableTypes();
+            IEnumerable<SourceTypeNode> unstableTypes = graph.GetUnstableTypes();
             Console.WriteLine($"Unstable Types: {string.Join(", ", unstableTypes.Select(t => t.Name))}");
         }
 
@@ -99,7 +99,7 @@ namespace MCPCSharpRelevancy.Models.Tests
             Console.WriteLine("\n--- BI-DIRECTIONAL METRICS ---");
             
             graph.CalculateMetrics();
-            var metrics = graph.Metrics;
+            SourceGraphMetrics metrics = graph.Metrics;
             
             Console.WriteLine($"Total Dependents: {metrics.TotalDependents}");
             Console.WriteLine($"Average Dependents per Type: {metrics.AverageDependentsPerType:F2}");
@@ -119,15 +119,15 @@ namespace MCPCSharpRelevancy.Models.Tests
             Console.WriteLine("\n--- ARCHITECTURAL PATTERNS ---");
             
             // Detect bi-directional patterns
-            var patterns = graph.DetectBiDirectionalPatterns();
-            foreach (var pattern in patterns)
+            IEnumerable<BiDirectionalPattern> patterns = graph.DetectBiDirectionalPatterns();
+            foreach (BiDirectionalPattern pattern in patterns)
             {
                 Console.WriteLine($"Pattern: {pattern.Type} - {pattern.Description}");
             }
             
             // Identify anti-patterns
-            var antiPatterns = graph.IdentifyAntiPatterns();
-            foreach (var antiPattern in antiPatterns)
+            IEnumerable<ArchitecturalAntiPattern> antiPatterns = graph.IdentifyAntiPatterns();
+            foreach (ArchitecturalAntiPattern antiPattern in antiPatterns)
             {
                 Console.WriteLine($"Anti-Pattern: {antiPattern.Type} ({antiPattern.Severity}) - {antiPattern.Description}");
             }
@@ -138,14 +138,14 @@ namespace MCPCSharpRelevancy.Models.Tests
             try
             {
                 // Create a simple mock graph for demonstration
-                var workspace = new AdhocWorkspace();
-                var project = workspace.AddProject("TestProject", LanguageNames.CSharp);
+                AdhocWorkspace workspace = new AdhocWorkspace();
+                Project? project = workspace.AddProject("TestProject", LanguageNames.CSharp);
                 
                 // Create a mock solution
-                var solution = workspace.CurrentSolution;
+                Solution solution = workspace.CurrentSolution;
                 
                 // Create the graph
-                var graph = new SourceDependencyGraph(solution);
+                SourceDependencyGraph graph = new SourceDependencyGraph(solution);
                 
                 // Add some mock nodes and dependencies
                 AddMockData(graph);

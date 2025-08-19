@@ -63,8 +63,8 @@ namespace SmolConv.Models
 
             if (_raw != null)
             {
-                var tempDir = Path.GetTempPath();
-                var fileName = $"{Guid.NewGuid()}.png";
+                string tempDir = Path.GetTempPath();
+                string fileName = $"{Guid.NewGuid()}.png";
                 _path = Path.Combine(tempDir, fileName);
                 
                 // For cross-platform compatibility, just create a placeholder file
@@ -76,8 +76,8 @@ namespace SmolConv.Models
             if (_tensor != null)
             {
                 // Convert tensor to image and save (simplified)
-                var tempDir = Path.GetTempPath();
-                var fileName = $"{Guid.NewGuid()}.png";
+                string tempDir = Path.GetTempPath();
+                string fileName = $"{Guid.NewGuid()}.png";
                 _path = Path.Combine(tempDir, fileName);
                 
                 // This would need proper tensor to image conversion
@@ -90,14 +90,14 @@ namespace SmolConv.Models
 
         public void Save(Stream outputStream, string? format = null)
         {
-            var raw = ToRaw();
+            object raw = ToRaw();
             if (raw is byte[] bytes)
             {
                 outputStream.Write(bytes, 0, bytes.Length);
             }
             else if (raw is string path && File.Exists(path))
             {
-                var fileBytes = File.ReadAllBytes(path);
+                byte[] fileBytes = File.ReadAllBytes(path);
                 outputStream.Write(fileBytes, 0, fileBytes.Length);
             }
         }

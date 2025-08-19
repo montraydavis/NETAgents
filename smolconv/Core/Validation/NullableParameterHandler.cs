@@ -37,12 +37,12 @@ namespace SmolConv.Core.Validation
         public static void ValidateNullableParameters(Dictionary<string, object?> arguments, 
                                                     Dictionary<string, Dictionary<string, object>> inputs)
         {
-            foreach (var (paramName, schema) in inputs)
+            foreach ((string paramName, Dictionary<string, object> schema) in inputs)
             {
-                var isNullable = IsNullable(schema);
-                var isOptional = IsOptional(schema);
+                bool isNullable = IsNullable(schema);
+                bool isOptional = IsOptional(schema);
 
-                if (arguments.TryGetValue(paramName, out var value))
+                if (arguments.TryGetValue(paramName, out object? value))
                 {
                     if (value == null && !isNullable)
                     {

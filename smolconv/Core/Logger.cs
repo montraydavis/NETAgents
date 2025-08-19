@@ -141,16 +141,16 @@ namespace SmolConv.Core
         protected override object? Forward(object?[]? args, Dictionary<string, object>? kwargs)
         {
             // Extract input data
-            var inputData = ExtractInputData(args, kwargs);
+            object inputData = ExtractInputData(args, kwargs);
 
             // Encode inputs
-            var encodedInputs = Encode(inputData);
+            object encodedInputs = Encode(inputData);
 
             // Run model
-            var modelOutputs = RunModel(encodedInputs);
+            object modelOutputs = RunModel(encodedInputs);
 
             // Decode outputs
-            var decodedOutputs = Decode(modelOutputs);
+            object decodedOutputs = Decode(modelOutputs);
 
             return decodedOutputs;
         }

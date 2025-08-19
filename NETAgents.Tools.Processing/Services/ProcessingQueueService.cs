@@ -45,8 +45,8 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         _completedJobs = new ConcurrentDictionary<Guid, FileProcessingJob>();
         
         // Create a bounded channel with much larger capacity to handle many jobs
-        var capacity = Math.Max(_options.MaxConcurrentProcessing * 100, 1000); // Increased from 10 to 100
-        var channelOptions = new BoundedChannelOptions(capacity)
+        int capacity = Math.Max(_options.MaxConcurrentProcessing * 100, 1000); // Increased from 10 to 100
+        BoundedChannelOptions channelOptions = new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
             SingleReader = false,
@@ -72,7 +72,7 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
             _logger.LogDebug("About to enqueue job {JobId} for file {FilePath}", job.Id, job.FilePath);
             
             // Add a timeout to prevent indefinite blocking
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30)); // 30 second timeout
             
             await _queue.Writer.WriteAsync(job, timeoutCts.Token);
@@ -107,13 +107,13 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         try
         {
             // Use a timeout to avoid infinite blocking
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_options.DequeueTimeout);
             
             // Try to read a single job instead of all jobs
             if (await _queue.Reader.WaitToReadAsync(timeoutCts.Token))
             {
-                if (_queue.Reader.TryRead(out var job))
+                if (_queue.Reader.TryRead(out FileProcessingJob? job))
                 {
                     job.Status = ProcessingStatus.Processing;
                     job.StartedAt = DateTime.UtcNow;
@@ -245,7 +245,7 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         _activeJobs.TryRemove(job.Id, out _);
         
         // Calculate exponential backoff delay
-        var delay = TimeSpan.FromMilliseconds(
+        TimeSpan delay = TimeSpan.FromMilliseconds(
             _options.RetryDelay.TotalMilliseconds * Math.Pow(2, job.RetryCount - 1));
         
         _logger.LogDebug("Scheduling retry for job {JobId} after {Delay:F2}s delay", 
@@ -261,15 +261,15 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
     {
         ThrowIfDisposed();
         
-        var pendingJobs = await GetQueueLengthAsync();
-        var activeJobs = _activeJobs.Count;
+        int pendingJobs = await GetQueueLengthAsync();
+        int activeJobs = _activeJobs.Count;
         
         lock (_statsLock)
         {
-            var completedJobs = _completedJobs.Values.Count(j => j.Status == ProcessingStatus.Completed);
-            var failedJobs = _completedJobs.Values.Count(j => j.Status == ProcessingStatus.Failed);
+            int completedJobs = _completedJobs.Values.Count(j => j.Status == ProcessingStatus.Completed);
+            int failedJobs = _completedJobs.Values.Count(j => j.Status == ProcessingStatus.Failed);
             
-            var completedWithDuration = _completedJobs.Values
+            List<FileProcessingJob> completedWithDuration = _completedJobs.Values
                 .Where(j => j.Status == ProcessingStatus.Completed && j.ProcessingDuration.HasValue)
                 .ToList();
             
@@ -290,12 +290,12 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         
         try
         {
-            var staleThreshold = DateTime.UtcNow.Subtract(_options.ProcessingTimeout * 2);
-            var staleJobs = _activeJobs.Values
+            DateTime staleThreshold = DateTime.UtcNow.Subtract(_options.ProcessingTimeout * 2);
+            List<FileProcessingJob> staleJobs = _activeJobs.Values
                 .Where(j => j.StartedAt.HasValue && j.StartedAt.Value < staleThreshold)
                 .ToList();
             
-            foreach (var staleJob in staleJobs)
+            foreach (FileProcessingJob staleJob in staleJobs)
             {
                 _logger.LogWarning("Cleaning up stale job {JobId} that started at {StartTime}", 
                     staleJob.Id, staleJob.StartedAt);
@@ -308,12 +308,12 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
             {
                 if (_completedJobs.Count > 1000)
                 {
-                    var oldJobs = _completedJobs.Values
+                    List<FileProcessingJob> oldJobs = _completedJobs.Values
                         .OrderBy(j => j.CompletedAt)
                         .Take(_completedJobs.Count - 1000)
                         .ToList();
                     
-                    foreach (var oldJob in oldJobs)
+                    foreach (FileProcessingJob oldJob in oldJobs)
                     {
                         _completedJobs.TryRemove(oldJob.Id, out _);
                     }

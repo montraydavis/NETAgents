@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SmolConv.Inference;
 using SmolConv.Models;
 using NETAgents.Tools.Processing.Models;
@@ -31,18 +32,18 @@ public class FileProcessorService : IFileProcessorService
     {
         _logger.LogInformation("Processing file: {FilePath}", job.FilePath);
         
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
         
         try
         {
             // Create the processing prompt
-            var processingPrompt = CreateProcessingPrompt(job.Content);
+            string processingPrompt = CreateProcessingPrompt(job.Content);
             
             // Process with timeout
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_options.ProcessingTimeout);
             
-            var result = await _model.GenerateAsync(
+            ChatMessage result = await _model.GenerateAsync(
                 new List<ChatMessage> { new ChatMessage(MessageRole.User, processingPrompt) },
                 null,
                 timeoutCts.Token

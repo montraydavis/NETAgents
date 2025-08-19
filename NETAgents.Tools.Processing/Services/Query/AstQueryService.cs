@@ -37,7 +37,7 @@ public class AstQueryService : BaseQueryService
         IEnumerable<AstQueryResult> nodes, 
         AstQueryRequest request)
     {
-        var query = nodes.AsEnumerable();
+        IEnumerable<AstQueryResult> query = nodes.AsEnumerable();
         
         if (!string.IsNullOrEmpty(request.NodeType))
             query = query.Where(n => n.Type?.Equals(request.NodeType, StringComparison.OrdinalIgnoreCase) == true);
@@ -62,20 +62,20 @@ public class AstQueryService : BaseQueryService
 
     private async Task<List<AstQueryResult>> ExtractAllAstNodesAsync(CancellationToken cancellationToken)
     {
-        var allNodes = new List<AstQueryResult>();
-        var cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
-        var processedFiles = 0;
-        var skippedFiles = 0;
-        var totalFiles = cacheFiles.Length;
+        List<AstQueryResult> allNodes = new List<AstQueryResult>();
+        string[] cacheFiles = Directory.GetFiles(_cacheDirectory, "*.json");
+        int processedFiles = 0;
+        int skippedFiles = 0;
+        int totalFiles = cacheFiles.Length;
         
         _logger.LogInformation("Processing {TotalFiles} cache files for AST extraction", totalFiles);
         
-        foreach (var cacheFile in cacheFiles)
+        foreach (string cacheFile in cacheFiles)
         {
             try
             {
-                var jsonContent = await File.ReadAllTextAsync(cacheFile, cancellationToken);
-                var entry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
+                string jsonContent = await File.ReadAllTextAsync(cacheFile, cancellationToken);
+                ProcessedFileEntry? entry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
                 
                 // Validate entry before processing
                 if (entry == null)
@@ -86,7 +86,7 @@ public class AstQueryService : BaseQueryService
                 }
                 
                 // Skip files that don't have AST data or failed processing
-                if (!entry.LevelData.TryGetValue(ProcessingLevel.Ast, out var astData) || !astData.IsSuccess)
+                if (!entry.LevelData.TryGetValue(ProcessingLevel.Ast, out ProcessedLevelData? astData) || !astData.IsSuccess)
                 {
                     skippedFiles++;
                     continue;
@@ -100,7 +100,7 @@ public class AstQueryService : BaseQueryService
                     continue;
                 }
                 
-                var nodes = await ExtractNodesFromAstAsync(entry.FilePath, astData.Content);
+                List<AstQueryResult> nodes = await ExtractNodesFromAstAsync(entry.FilePath, astData.Content);
                 
                 // Only add nodes if we actually found valid ones
                 if (nodes.Any())
@@ -130,24 +130,24 @@ public class AstQueryService : BaseQueryService
 
     private async Task<List<AstQueryResult>> ExtractNodesFromAstAsync(string filePath, string astContent)
     {
-        var nodes = new List<AstQueryResult>();
+        List<AstQueryResult> nodes = new List<AstQueryResult>();
         
         try
         {
-            var options = new JsonSerializerOptions
+            JsonSerializerOptions options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 AllowTrailingCommas = true,
                 ReadCommentHandling = JsonCommentHandling.Skip
             };
             
-            var astData = JsonSerializer.Deserialize<AstCompilationUnit>(astContent, options);
+            AstCompilationUnit? astData = JsonSerializer.Deserialize<AstCompilationUnit>(astContent, options);
             if (astData == null) return nodes;
 
             // Extract classes
             if (astData.Classes != null)
             {
-                foreach (var cls in astData.Classes)
+                foreach (AstClass cls in astData.Classes)
                 {
                     // Validate class data before adding
                     if (!string.IsNullOrWhiteSpace(cls.Name))
@@ -169,7 +169,7 @@ public class AstQueryService : BaseQueryService
             // Extract interfaces
             if (astData.Interfaces != null)
             {
-                foreach (var iface in astData.Interfaces)
+                foreach (AstInterface iface in astData.Interfaces)
                 {
                     // Validate interface data before adding
                     if (!string.IsNullOrWhiteSpace(iface.Name))
@@ -191,7 +191,7 @@ public class AstQueryService : BaseQueryService
             // Extract enums
             if (astData.Enums != null)
             {
-                foreach (var enumType in astData.Enums)
+                foreach (AstEnum enumType in astData.Enums)
                 {
                     // Validate enum data before adding
                     if (!string.IsNullOrWhiteSpace(enumType.Name))
@@ -213,7 +213,7 @@ public class AstQueryService : BaseQueryService
             // Extract records
             if (astData.Records != null)
             {
-                foreach (var record in astData.Records)
+                foreach (AstRecord record in astData.Records)
                 {
                     // Validate record data before adding
                     if (!string.IsNullOrWhiteSpace(record.Name))
@@ -235,7 +235,7 @@ public class AstQueryService : BaseQueryService
             // Extract structs
             if (astData.Structs != null)
             {
-                foreach (var structType in astData.Structs)
+                foreach (AstStruct structType in astData.Structs)
                 {
                     // Validate struct data before adding
                     if (!string.IsNullOrWhiteSpace(structType.Name))

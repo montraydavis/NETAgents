@@ -70,7 +70,7 @@ namespace SmolConv.Core
             {
                 _stepDurations.Add(step.Timing.Duration.Value);
                 
-                var consoleOutput = $"[Step {_stepDurations.Count}: Duration {step.Timing.Duration.Value:F2} seconds";
+                string consoleOutput = $"[Step {_stepDurations.Count}: Duration {step.Timing.Duration.Value:F2} seconds";
 
                 // Extract token usage if available
                 TokenUsage? tokenUsage = step switch

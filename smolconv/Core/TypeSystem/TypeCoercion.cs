@@ -64,7 +64,7 @@ namespace SmolConv.Core.TypeSystem
                 float f => SetResult(out result, (double)f),
                 decimal d => SetResult(out result, (double)d),
                 double => true, // Already a number
-                string s when double.TryParse(s, out var d) => SetResult(out result, d),
+                string s when double.TryParse(s, out double d) => SetResult(out result, d),
                 JsonElement jsonElement when jsonElement.ValueKind == JsonValueKind.Number => 
                     SetResult(out result, jsonElement.GetDouble()),
                 _ => false
@@ -90,9 +90,9 @@ namespace SmolConv.Core.TypeSystem
                 double d when d % 1 == 0 => SetResult(out result, (int)d),
                 float f when f % 1 == 0 => SetResult(out result, (int)f),
                 decimal dec when dec % 1 == 0 => SetResult(out result, (int)dec),
-                string s when int.TryParse(s, out var i) => SetResult(out result, i),
+                string s when int.TryParse(s, out int i) => SetResult(out result, i),
                 JsonElement jsonElement when jsonElement.ValueKind == JsonValueKind.Number && 
-                                           jsonElement.TryGetInt64(out var l) => 
+                                           jsonElement.TryGetInt64(out long l) => 
                     SetResult(out result, (int)l),
                 _ => false
             };
@@ -111,7 +111,7 @@ namespace SmolConv.Core.TypeSystem
             return value switch
             {
                 bool => true, // Already a boolean
-                string s when bool.TryParse(s, out var b) => SetResult(out result, b),
+                string s when bool.TryParse(s, out bool b) => SetResult(out result, b),
                 int i => SetResult(out result, i != 0),
                 long l => SetResult(out result, l != 0),
                 double d => SetResult(out result, d != 0),
@@ -177,7 +177,7 @@ namespace SmolConv.Core.TypeSystem
             result = new object();
             try
             {
-                var array = JsonSerializer.Deserialize<object?[]?>(jsonString);
+                object?[]? array = JsonSerializer.Deserialize<object?[]?>(jsonString);
                 result = array ?? Array.Empty<object?>();
                 return true;
             }
@@ -198,7 +198,7 @@ namespace SmolConv.Core.TypeSystem
             result = new object();
             try
             {
-                var obj = JsonSerializer.Deserialize<Dictionary<string, object?>>(jsonString);
+                Dictionary<string, object?>? obj = JsonSerializer.Deserialize<Dictionary<string, object?>>(jsonString);
                 result = obj ?? new Dictionary<string, object?>();
                 return true;
             }

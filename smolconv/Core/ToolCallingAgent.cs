@@ -77,8 +77,8 @@ namespace SmolConv.Core
             ActionStep actionStep,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            var memoryMessages = Memory.ToMessages();
-            var inputMessages = new List<ChatMessage>(memoryMessages);
+            List<ChatMessage> memoryMessages = Memory.ToMessages();
+            List<ChatMessage> inputMessages = new List<ChatMessage>(memoryMessages);
 
             ChatMessage chatMessage;
 
@@ -86,8 +86,8 @@ namespace SmolConv.Core
             if (_streamOutputs)
             {
                 // No try/catch around this loop: yielding inside try/catch is illegal in C# iterators.
-                var deltas = new List<ChatMessageStreamDelta>();
-                await foreach (var delta in _model.GenerateStream(
+                List<ChatMessageStreamDelta> deltas = new List<ChatMessageStreamDelta>();
+                await foreach (ChatMessageStreamDelta delta in _model.GenerateStream(
                     inputMessages,
                     new ModelCompletionOptions
                     {
@@ -136,13 +136,13 @@ namespace SmolConv.Core
             }
 
             // --- Phase 3: Process tool calls (stream results). No try/catch around yields. ---
-            var finalAnswer = default(object);
+            object? finalAnswer = default(object);
             finalAnswer = chatMessage.ContentString;
-            var gotFinalAnswer = false;
+            bool gotFinalAnswer = false;
 
             if (chatMessage.ToolCalls != null)
             {
-                await foreach (var toolOutput in ProcessToolCallsAsync(chatMessage.ToolCalls, cancellationToken))
+                await foreach (object toolOutput in ProcessToolCallsAsync(chatMessage.ToolCalls, cancellationToken))
                 {
                     yield return toolOutput; // ✅ streaming tool outputs
 
@@ -174,12 +174,12 @@ namespace SmolConv.Core
             List<ChatMessageToolCall> toolCalls,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            foreach (var chatToolCall in toolCalls)
+            foreach (ChatMessageToolCall chatToolCall in toolCalls)
             {
-                var toolCall = new ToolCall(chatToolCall.Function.Name, chatToolCall.Function.Arguments, chatToolCall.Id);
+                ToolCall toolCall = new ToolCall(chatToolCall.Function.Name, chatToolCall.Function.Arguments, chatToolCall.Id);
                 yield return toolCall;
 
-                var toolOutput = await ExecuteToolCallAsync(toolCall, cancellationToken);
+                ToolOutput toolOutput = await ExecuteToolCallAsync(toolCall, cancellationToken);
                 yield return toolOutput;
             }
         }
@@ -192,16 +192,16 @@ namespace SmolConv.Core
         /// <returns>Tool output</returns>
         protected virtual async Task<ToolOutput> ExecuteToolCallAsync(ToolCall toolCall, CancellationToken cancellationToken = default)
         {
-            var toolName = toolCall.Name;
-            var arguments = toolCall.Arguments;
+            string toolName = toolCall.Name;
+            object? arguments = toolCall.Arguments;
 
             _logger.Log($"Calling tool: '{toolName}' with arguments: {JsonSerializer.Serialize(arguments)}", LogLevel.Info);
 
             // 1. Tool Discovery
-            var availableTools = GetAvailableTools();
-            if (!availableTools.TryGetValue(toolName, out var tool))
+            Dictionary<string, BaseTool> availableTools = GetAvailableTools();
+            if (!availableTools.TryGetValue(toolName, out BaseTool? tool))
             {
-                var availableToolNames = string.Join(", ", availableTools.Keys);
+                string availableToolNames = string.Join(", ", availableTools.Keys);
                 throw new AgentToolExecutionError(
                     $"Unknown tool '{toolName}', should be one of: {availableToolNames}", 
                     _logger);
@@ -210,7 +210,7 @@ namespace SmolConv.Core
             try
             {
                 // 2. Argument Conversion
-                var processedArgs = ConvertAndProcessArguments(arguments, tool);
+                Dictionary<string, object>? processedArgs = ConvertAndProcessArguments(arguments, tool);
                 
                 // 3. State Variable Validation
                 ValidateStateVariables(processedArgs);
@@ -219,11 +219,11 @@ namespace SmolConv.Core
                 processedArgs = (Dictionary<string, object>)SubstituteStateVariables(processedArgs);
 
                 // 5. Tool Argument Validation
-                var nullableProcessedArgs = processedArgs?.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value) ?? new Dictionary<string, object?>();
+                Dictionary<string, object?> nullableProcessedArgs = processedArgs?.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value) ?? new Dictionary<string, object?>();
                 Validation.ToolArgumentValidator.ValidateToolArguments(tool, nullableProcessedArgs);
 
                 // 6. Determine execution context
-                var isManagedAgent = _managedAgents.ContainsKey(toolName);
+                bool isManagedAgent = _managedAgents.ContainsKey(toolName);
 
                 // 7. Execute tool with proper sanitization
                 object? result = await ExecuteToolWithProperSanitization(tool, processedArgs ?? new Dictionary<string, object>(), 
@@ -249,9 +249,9 @@ namespace SmolConv.Core
         /// <returns>Dictionary of available tools</returns>
         private Dictionary<string, BaseTool> GetAvailableTools()
         {
-            var availableTools = new Dictionary<string, BaseTool>();
-            foreach (var t in _tools) availableTools[t.Key] = t.Value;
-            foreach (var agent in _managedAgents) availableTools[agent.Key] = agent.Value;
+            Dictionary<string, BaseTool> availableTools = new Dictionary<string, BaseTool>();
+            foreach (KeyValuePair<string, Tool> t in _tools) availableTools[t.Key] = t.Value;
+            foreach (KeyValuePair<string, MultiStepAgent> agent in _managedAgents) availableTools[agent.Key] = agent.Value;
             return availableTools;
         }
 
@@ -285,7 +285,7 @@ namespace SmolConv.Core
                 if (t.Inputs.Count == 1)
                 {
                     // If the tool has exactly one input parameter, use that parameter name
-                    var parameterName = t.Inputs.Keys.First();
+                    string parameterName = t.Inputs.Keys.First();
                     return new Dictionary<string, object> { [parameterName] = arguments! };
                 }
                 else if (t.Inputs.Count == 0)
@@ -298,7 +298,7 @@ namespace SmolConv.Core
             // For managed agents or tools with multiple inputs, use default mapping
             if (tool != null)
             {
-                var defaultArgName = GetDefaultArgumentName(tool.Name);
+                string defaultArgName = GetDefaultArgumentName(tool.Name);
                 return new Dictionary<string, object> { [defaultArgName] = arguments! };
             }
             
@@ -356,8 +356,8 @@ namespace SmolConv.Core
         /// <returns>Tool output</returns>
         private ToolOutput CreateToolOutput(ToolCall toolCall, object? result, string toolName)
         {
-            var observation = result?.ToString() ?? "No output";
-            var isFinalAnswer = toolName == "final_answer";
+            string observation = result?.ToString() ?? "No output";
+            bool isFinalAnswer = toolName == "final_answer";
 
             _logger.Log($"Observations: {observation}", LogLevel.Info);
 
@@ -401,8 +401,8 @@ namespace SmolConv.Core
         /// <returns>Agglomerated message</returns>
         protected virtual ChatMessage AgglomerateStreamDeltas(List<ChatMessageStreamDelta> deltas)
         {
-            var content = string.Join("", deltas.Select(d => d.Content ?? ""));
-            var toolCalls = new List<ChatMessageToolCall>();  // ← Empty list!
+            string content = string.Join("", deltas.Select(d => d.Content ?? ""));
+            List<ChatMessageToolCall> toolCalls = new List<ChatMessageToolCall>();  // ← Empty list!
 
             // Simple aggregation - would need more sophisticated handling for real implementation
             return new ChatMessage(MessageRole.Assistant, content, content, toolCalls);
@@ -416,8 +416,8 @@ namespace SmolConv.Core
         /// <returns>Populated template</returns>
         protected virtual string PopulateTemplate(string template, Dictionary<string, object> variables)
         {
-            var result = template;
-            foreach (var kvp in variables)
+            string result = template;
+            foreach (KeyValuePair<string, object> kvp in variables)
             {
                 result = result.Replace($"{{{{{kvp.Key}}}}}", kvp.Value?.ToString() ?? "");
             }
@@ -455,8 +455,8 @@ namespace SmolConv.Core
         /// <returns>Dictionary with state variables substituted</returns>
         private Dictionary<string, object> SubstituteDictionary(Dictionary<string, object> dict)
         {
-            var result = new Dictionary<string, object>();
-            foreach (var kvp in dict)
+            Dictionary<string, object> result = new Dictionary<string, object>();
+            foreach (KeyValuePair<string, object> kvp in dict)
             {
                 result[kvp.Key] = SubstituteStateVariables(kvp.Value);
             }
@@ -485,8 +485,8 @@ namespace SmolConv.Core
         /// <param name="arguments">Arguments to validate</param>
         public virtual void ValidateStateVariables(object arguments)
         {
-            var referencedVars = ExtractStateVariableReferences(arguments);
-            var missingVars = referencedVars.Where(v => !State.ContainsKey(v)).ToList();
+            List<string> referencedVars = ExtractStateVariableReferences(arguments);
+            List<string> missingVars = referencedVars.Where(v => !State.ContainsKey(v)).ToList();
             
             if (missingVars.Any())
             {
@@ -502,7 +502,7 @@ namespace SmolConv.Core
         /// <returns>List of referenced state variable names</returns>
         private List<string> ExtractStateVariableReferences(object obj)
         {
-            var references = new List<string>();
+            List<string> references = new List<string>();
             
             switch (obj)
             {
@@ -515,11 +515,11 @@ namespace SmolConv.Core
                     }
                     break;
                 case Dictionary<string, object> dict:
-                    foreach (var value in dict.Values)
+                    foreach (object value in dict.Values)
                         references.AddRange(ExtractStateVariableReferences(value));
                     break;
                 case IEnumerable<object> enumerable:
-                    foreach (var item in enumerable)
+                    foreach (object item in enumerable)
                         references.AddRange(ExtractStateVariableReferences(item));
                     break;
             }
@@ -548,8 +548,8 @@ namespace SmolConv.Core
         /// <param name="arguments">The arguments that were passed</param>
         private void HandleStateVariableError(Exception ex, string toolName, object arguments)
         {
-            var errorMsg = $"State variable error in tool '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.Message}\n" +
-                          "Please ensure all referenced state variables are defined";
+            string errorMsg = $"State variable error in tool '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.Message}\n" +
+                              "Please ensure all referenced state variables are defined";
             
             throw new AgentToolCallError(errorMsg, _logger);
         }

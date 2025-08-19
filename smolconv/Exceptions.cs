@@ -322,12 +322,12 @@ namespace SmolConv.Exceptions
 
             lock (_lockObject)
             {
-                var now = DateTime.UtcNow;
-                var elapsed = (now - _lastCall).TotalSeconds;
+                DateTime now = DateTime.UtcNow;
+                double elapsed = (now - _lastCall).TotalSeconds;
 
                 if (elapsed < _intervalSeconds)
                 {
-                    var delayMs = (int)(((_intervalSeconds - elapsed) * 1000));
+                    int delayMs = (int)(((_intervalSeconds - elapsed) * 1000));
                     Thread.Sleep(delayMs);
                 }
 
@@ -349,8 +349,8 @@ namespace SmolConv.Exceptions
 
             lock (_lockObject)
             {
-                var now = DateTime.UtcNow;
-                var elapsed = (now - _lastCall).TotalSeconds;
+                DateTime now = DateTime.UtcNow;
+                double elapsed = (now - _lastCall).TotalSeconds;
 
                 if (elapsed < _intervalSeconds)
                 {

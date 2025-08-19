@@ -21,9 +21,9 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         public SourceDependencyGraphTests()
         {
             // Create a mock solution and graph
-            var workspace = new AdhocWorkspace();
-            var project = workspace.AddProject("TestProject", LanguageNames.CSharp);
-            var solution = workspace.CurrentSolution;
+            AdhocWorkspace workspace = new AdhocWorkspace();
+            Project? project = workspace.AddProject("TestProject", LanguageNames.CSharp);
+            Solution solution = workspace.CurrentSolution;
             
             _graph = new SourceDependencyGraph(solution);
             
@@ -46,17 +46,17 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         private SourceTypeNode CreateMockNode(string name, Project project)
         {
             // Create a simple mock node for testing
-            var document = project.AddDocument(name + ".cs", SourceText.From($"public class {name} {{ }}"));
-            var syntaxTree = document.GetSyntaxTreeAsync().Result;
-            var root = syntaxTree.GetRootAsync().Result;
-            var classDeclaration = root.DescendantNodes().OfType<ClassDeclarationSyntax>().First();
+            Document document = project.AddDocument(name + ".cs", SourceText.From($"public class {name} {{ }}"));
+            SyntaxTree? syntaxTree = document.GetSyntaxTreeAsync().Result;
+            SyntaxNode root = syntaxTree.GetRootAsync().Result;
+            ClassDeclarationSyntax classDeclaration = root.DescendantNodes().OfType<ClassDeclarationSyntax>().First();
             
-            var compilation = CSharpCompilation.Create("TestAssembly")
+            CSharpCompilation compilation = CSharpCompilation.Create("TestAssembly")
                 .AddReferences(MetadataReference.CreateFromFile(typeof(object).Assembly.Location))
                 .AddSyntaxTrees(syntaxTree);
             
-            var semanticModel = compilation.GetSemanticModel(syntaxTree);
-            var symbol = semanticModel.GetDeclaredSymbol(classDeclaration);
+            SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
+            INamedTypeSymbol? symbol = semanticModel.GetDeclaredSymbol(classDeclaration);
             
             return new SourceTypeNode(
                 symbol!,
@@ -73,19 +73,19 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         private void CreateMockDependencies()
         {
             // UserController depends on UserService
-            var controllerToService = CreateMockDependency(_userController, _userService, SourceDependencyType.Constructor);
+            SourceTypeDependency controllerToService = CreateMockDependency(_userController, _userService, SourceDependencyType.Constructor);
             _graph.AddDependency(controllerToService);
             
             // UserService depends on UserRepository
-            var serviceToRepository = CreateMockDependency(_userService, _userRepository, SourceDependencyType.Constructor);
+            SourceTypeDependency serviceToRepository = CreateMockDependency(_userService, _userRepository, SourceDependencyType.Constructor);
             _graph.AddDependency(serviceToRepository);
             
             // UserService depends on UserModel
-            var serviceToModel = CreateMockDependency(_userService, _userModel, SourceDependencyType.Property);
+            SourceTypeDependency serviceToModel = CreateMockDependency(_userService, _userModel, SourceDependencyType.Property);
             _graph.AddDependency(serviceToModel);
             
             // UserRepository depends on UserModel
-            var repositoryToModel = CreateMockDependency(_userRepository, _userModel, SourceDependencyType.Field);
+            SourceTypeDependency repositoryToModel = CreateMockDependency(_userRepository, _userModel, SourceDependencyType.Field);
             _graph.AddDependency(repositoryToModel);
         }
 
@@ -116,12 +116,12 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
             // Test that dependencies and dependents are tracked correctly
             
             // UserService should have 2 dependencies (UserRepository, UserModel)
-            var userServiceDependencies = _graph.GetDependenciesOf("UserService");
+            IEnumerable<SourceTypeDependency> userServiceDependencies = _graph.GetDependenciesOf("UserService");
             Assert.Equal(2, userServiceDependencies.Count());
             
             // UserService should have 1 dependent (UserController)
-            var userServiceDependents = _graph.GetDependentsOf("UserService");
-            var singleDependent = Assert.Single(userServiceDependents);
+            IEnumerable<SourceTypeDependency> userServiceDependents = _graph.GetDependentsOf("UserService");
+            SourceTypeDependency singleDependent = Assert.Single(userServiceDependents);
             Assert.Equal("UserController", singleDependent.SourceType.Name);
         }
 
@@ -130,16 +130,16 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         {
             // Test that graph-level Dependents dictionary matches node-level dependents
             
-            foreach (var node in _graph.Nodes.Values)
+            foreach (SourceTypeNode node in _graph.Nodes.Values)
             {
-                var nodeDependents = node.Dependents;
-                var graphDependents = _graph.GetDependentsFromGraph(node.FullName).ToList();
+                List<SourceTypeDependency> nodeDependents = node.Dependents;
+                List<SourceTypeDependency> graphDependents = _graph.GetDependentsFromGraph(node.FullName).ToList();
 
                 Assert.Equal(nodeDependents.Count, graphDependents.Count);
 
                 // Check that the same dependencies are present
-                var nodeDependentTypes = nodeDependents.Select(d => d.SourceType.ToDisplayString()).ToHashSet();
-                var graphDependentTypes = graphDependents.Select(d => d.SourceType.ToDisplayString()).ToHashSet();
+                HashSet<string> nodeDependentTypes = nodeDependents.Select(d => d.SourceType.ToDisplayString()).ToHashSet();
+                HashSet<string> graphDependentTypes = graphDependents.Select(d => d.SourceType.ToDisplayString()).ToHashSet();
 
                 Assert.Equal(nodeDependentTypes, graphDependentTypes);
             }
@@ -150,13 +150,13 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         {
             // Test the new graph-level dependents method
             
-            var userServiceDependents = _graph.GetDependentsFromGraph("UserService");
-            var singleDependent = Assert.Single(userServiceDependents);
+            IEnumerable<SourceTypeDependency> userServiceDependents = _graph.GetDependentsFromGraph("UserService");
+            SourceTypeDependency singleDependent = Assert.Single(userServiceDependents);
             Assert.Equal("UserController", singleDependent.SourceType.Name);
             
-            var userModelDependents = _graph.GetDependentsFromGraph("UserModel");
+            IEnumerable<SourceTypeDependency> userModelDependents = _graph.GetDependentsFromGraph("UserModel");
             Assert.Equal(2, userModelDependents.Count());
-            var dependentTypes = userModelDependents.Select(d => d.SourceType.Name).ToHashSet();
+            HashSet<string> dependentTypes = userModelDependents.Select(d => d.SourceType.Name).ToHashSet();
             Assert.Contains("UserService", dependentTypes);
             Assert.Contains("UserRepository", dependentTypes);
         }
@@ -164,7 +164,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void GetTypesWithDependents_ShouldReturnCorrectTypes()
         {
-            var typesWithDependents = _graph.GetTypesWithDependents().ToList();
+            List<string> typesWithDependents = _graph.GetTypesWithDependents().ToList();
             
             Assert.Equal(3, typesWithDependents.Count); // UserService, UserModel, UserRepository have dependents
             Assert.Contains("UserService", typesWithDependents);
@@ -185,7 +185,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void GetAllDependents_ShouldReturnAllDependents()
         {
-            var allDependents = _graph.GetAllDependents().ToList();
+            List<SourceTypeDependency> allDependents = _graph.GetAllDependents().ToList();
             Assert.Equal(4, allDependents.Count); // Total of all dependent relationships
         }
 
@@ -208,7 +208,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void HighFanInTypes_ShouldBeIdentifiedCorrectly()
         {
-            var highFanInTypes = _graph.GetHighFanInTypes(1).ToList();
+            List<SourceTypeNode> highFanInTypes = _graph.GetHighFanInTypes(1).ToList();
             Assert.Equal(3, highFanInTypes.Count); // UserService, UserModel, and UserRepository have >= 1 dependents
             Assert.Contains(_userService, highFanInTypes);
             Assert.Contains(_userModel, highFanInTypes);
@@ -218,7 +218,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void HighFanOutTypes_ShouldBeIdentifiedCorrectly()
         {
-            var highFanOutTypes = _graph.GetHighFanOutTypes(1).ToList();
+            List<SourceTypeNode> highFanOutTypes = _graph.GetHighFanOutTypes(1).ToList();
             Assert.Equal(3, highFanOutTypes.Count); // UserService, UserController, and UserRepository have >= 1 dependencies
             Assert.Contains(_userService, highFanOutTypes);
             Assert.Contains(_userController, highFanOutTypes);
@@ -228,21 +228,21 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void StableTypes_ShouldBeIdentifiedCorrectly()
         {
-            var stableTypes = _graph.GetStableTypes().ToList();
+            List<SourceTypeNode> stableTypes = _graph.GetStableTypes().ToList();
             Assert.Single(stableTypes, _userModel); // UserModel is stable (high fan-in, low fan-out)
         }
 
         [Fact]
         public void UnstableTypes_ShouldBeIdentifiedCorrectly()
         {
-            var unstableTypes = _graph.GetUnstableTypes().ToList();
+            List<SourceTypeNode> unstableTypes = _graph.GetUnstableTypes().ToList();
             Assert.Empty(unstableTypes); // With avg fan-in/out == 1, no type has fan-out > 1 and fan-in < 1
         }
 
         [Fact]
         public void ImpactScope_ShouldIncludeAllDependents()
         {
-            var userModelImpact = _graph.GetImpactScope("UserModel");
+            List<SourceTypeNode> userModelImpact = _graph.GetImpactScope("UserModel");
             Assert.Equal(4, userModelImpact.Count); // UserModel, UserService, UserController, UserRepository
             Assert.Contains(_userModel, userModelImpact);
             Assert.Contains(_userService, userModelImpact);
@@ -253,7 +253,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void DependencyScope_ShouldIncludeAllDependencies()
         {
-            var userControllerScope = _graph.GetDependencyScope("UserController");
+            List<SourceTypeNode> userControllerScope = _graph.GetDependencyScope("UserController");
             Assert.Equal(4, userControllerScope.Count); // UserController, UserService, UserRepository, UserModel
             Assert.Contains(_userController, userControllerScope);
             Assert.Contains(_userService, userControllerScope);
@@ -281,7 +281,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         public void MetricsCalculation_ShouldBeAccurate()
         {
             _graph.CalculateMetrics();
-            var metrics = _graph.Metrics;
+            SourceGraphMetrics metrics = _graph.Metrics;
             
             Assert.Equal(4, metrics.TotalTypes);
             Assert.Equal(4, metrics.TotalDependencies);
@@ -298,13 +298,13 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
             // Test that cached indexes work correctly
             _graph.BuildBiDirectionalIndexes();
             
-            var dependentsOptimized = _graph.GetDependentsOfOptimized("UserService");
-            var dependentsRegular = _graph.GetDependentsOf("UserService");
+            IEnumerable<SourceTypeDependency> dependentsOptimized = _graph.GetDependentsOfOptimized("UserService");
+            IEnumerable<SourceTypeDependency> dependentsRegular = _graph.GetDependentsOf("UserService");
             
             Assert.Equal(dependentsRegular.Count(), dependentsOptimized.Count());
             
-            var dependenciesOptimized = _graph.GetDependenciesOfOptimized("UserService");
-            var dependenciesRegular = _graph.GetDependenciesOf("UserService");
+            IEnumerable<SourceTypeDependency> dependenciesOptimized = _graph.GetDependenciesOfOptimized("UserService");
+            IEnumerable<SourceTypeDependency> dependenciesRegular = _graph.GetDependenciesOf("UserService");
             
             Assert.Equal(dependenciesRegular.Count(), dependenciesOptimized.Count());
         }
@@ -312,7 +312,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void PathFinding_ShouldFindCorrectPaths()
         {
-            var path = _graph.FindDependencyChain("UserController", "UserModel");
+            List<SourceTypeNode> path = _graph.FindDependencyChain("UserController", "UserModel");
             Assert.Equal(3, path.Count); // UserController -> UserService -> UserModel
             Assert.Equal("UserController", path[0].Name);
             Assert.Equal("UserService", path[1].Name);
@@ -330,7 +330,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void BiDirectionalReport_ShouldGenerateCorrectly()
         {
-            var report = _graph.GenerateBiDirectionalReport();
+            string report = _graph.GenerateBiDirectionalReport();
             Assert.NotNull(report);
             Assert.Contains("BI-DIRECTIONAL DEPENDENCY ANALYSIS REPORT", report);
             Assert.Contains("Total Types: 4", report);
@@ -340,7 +340,7 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void TypeMetrics_ShouldBeAccurate()
         {
-            var metrics = _graph.GetTypeBiDirectionalMetrics("UserService");
+            Dictionary<string, object> metrics = _graph.GetTypeBiDirectionalMetrics("UserService");
             
             Assert.Equal("UserService", metrics["TypeName"]);
             Assert.Equal(1, metrics["FanIn"]);
@@ -354,10 +354,10 @@ namespace NETAgents.Tools.CSStaticAnalysis.Tests
         [Fact]
         public void FanInOutAnalysis_ShouldReturnCorrectData()
         {
-            var analysis = _graph.GetFanInOutAnalysis().ToList();
+            List<(string TypeName, int FanIn, int FanOut, double FanInRatio, double FanOutRatio, bool IsStable, bool IsUnstable)> analysis = _graph.GetFanInOutAnalysis().ToList();
             Assert.Equal(4, analysis.Count); // One entry per type
             
-            var userServiceAnalysis = analysis.First(a => a.TypeName == "UserService");
+            (string TypeName, int FanIn, int FanOut, double FanInRatio, double FanOutRatio, bool IsStable, bool IsUnstable) userServiceAnalysis = analysis.First(a => a.TypeName == "UserService");
             Assert.Equal(1, userServiceAnalysis.FanIn);
             Assert.Equal(2, userServiceAnalysis.FanOut);
             Assert.False(userServiceAnalysis.IsStable);

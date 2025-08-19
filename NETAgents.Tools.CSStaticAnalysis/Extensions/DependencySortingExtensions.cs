@@ -1,6 +1,7 @@
 using MCPCSharpRelevancy.Extensions;
 using MCPCSharpRelevancy.Models;
 using MCPCSharpRelevancy.Models.KnowledgeGraph;
+using NodeProcessingInfo = MCPCSharpRelevancy.Extensions.NodeProcessingInfo;
 
 namespace MCPCSharpRelevancy.Extensions
 {
@@ -23,17 +24,17 @@ namespace MCPCSharpRelevancy.Extensions
             CycleHandling handleCycles = CycleHandling.BreakCycles)
             where T : class
         {
-            var nodeList = nodes.ToList();
-            var result = new List<T>();
-            var visited = new HashSet<T>();
-            var visiting = new HashSet<T>();
-            var cycles = new List<List<T>>();
+            List<T> nodeList = nodes.ToList();
+            List<T> result = new List<T>();
+            HashSet<T> visited = new HashSet<T>();
+            HashSet<T> visiting = new HashSet<T>();
+            List<List<T>> cycles = new List<List<T>>();
 
-            foreach (var node in nodeList)
+            foreach (T node in nodeList)
             {
                 if (!visited.Contains(node))
                 {
-                    var cycle = TopologicalSortDFS(node, getDependencies, visited, visiting, result);
+                    List<T> cycle = TopologicalSortDFS(node, getDependencies, visited, visiting, result);
                     if (cycle.Any())
                     {
                         cycles.Add(cycle);
@@ -91,10 +92,10 @@ namespace MCPCSharpRelevancy.Extensions
             SourceDependencyGraph graph,
             CycleHandling handleCycles = CycleHandling.BreakCycles)
         {
-            var dependencyList = dependencies.ToList();
+            List<SourceTypeDependency> dependencyList = dependencies.ToList();
             
             // Get all unique nodes involved in these dependencies
-            var involvedNodes = dependencyList
+            List<SourceTypeNode?> involvedNodes = dependencyList
                 .SelectMany(d => new[] { 
                     graph.GetNode(d.SourceType.ToDisplayString()), 
                     graph.GetNode(d.TargetType.ToDisplayString()) 
@@ -104,10 +105,10 @@ namespace MCPCSharpRelevancy.Extensions
                 .ToList();
 
             // Sort nodes topologically
-            var sortedNodes = involvedNodes.ToTopologicalOrder(graph, handleCycles);
+            List<SourceTypeNode> sortedNodes = involvedNodes.ToTopologicalOrder(graph, handleCycles);
 
             // Create a lookup for node processing order
-            var nodeOrder = sortedNodes
+            Dictionary<string, int> nodeOrder = sortedNodes
                 .Select((node, index) => new { Node = node, Order = index })
                 .ToDictionary(x => x.Node.FullName, x => x.Order);
 
@@ -129,21 +130,21 @@ namespace MCPCSharpRelevancy.Extensions
             this IEnumerable<SourceTypeNode> nodes,
             SourceDependencyGraph graph)
         {
-            var nodeList = nodes.ToList();
-            var levels = new Dictionary<int, List<SourceTypeNode>>();
-            var nodeToLevel = new Dictionary<string, int>();
+            List<SourceTypeNode> nodeList = nodes.ToList();
+            Dictionary<int, List<SourceTypeNode>> levels = new Dictionary<int, List<SourceTypeNode>>();
+            Dictionary<string, int> nodeToLevel = new Dictionary<string, int>();
             
             // Continue until all nodes are assigned a level
-            var unprocessed = new HashSet<SourceTypeNode>(nodeList);
-            var currentLevel = 0;
+            HashSet<SourceTypeNode> unprocessed = new HashSet<SourceTypeNode>(nodeList);
+            int currentLevel = 0;
 
             while (unprocessed.Any())
             {
-                var currentLevelNodes = new List<SourceTypeNode>();
+                List<SourceTypeNode> currentLevelNodes = new List<SourceTypeNode>();
 
-                foreach (var node in unprocessed.ToList())
+                foreach (SourceTypeNode node in unprocessed.ToList())
                 {
-                    var dependencies = GetDependentNodes(node, graph).ToList();
+                    List<SourceTypeNode> dependencies = GetDependentNodes(node, graph).ToList();
                     
                     // Check if all dependencies are already processed (at lower levels)
                     bool canProcess = dependencies.All(dep => 
@@ -166,7 +167,7 @@ namespace MCPCSharpRelevancy.Extensions
                 else if (unprocessed.Any())
                 {
                     // Handle circular dependencies by breaking the cycle
-                    var nodeToBreak = unprocessed.First();
+                    SourceTypeNode nodeToBreak = unprocessed.First();
                     currentLevelNodes.Add(nodeToBreak);
                     nodeToLevel[nodeToBreak.FullName] = currentLevel;
                     unprocessed.Remove(nodeToBreak);
@@ -188,16 +189,16 @@ namespace MCPCSharpRelevancy.Extensions
             this IEnumerable<SourceTypeNode> nodes,
             SourceDependencyGraph graph)
         {
-            var nodeList = nodes.ToList();
-            var dependencyLevels = nodeList.GroupByDependencyLevel(graph);
-            var processingPlan = new List<NodeProcessingInfo>();
+            List<SourceTypeNode> nodeList = nodes.ToList();
+            Dictionary<int, List<SourceTypeNode>> dependencyLevels = nodeList.GroupByDependencyLevel(graph);
+            List<NodeProcessingInfo> processingPlan = new List<NodeProcessingInfo>();
 
-            foreach (var level in dependencyLevels.OrderBy(kvp => kvp.Key))
+            foreach (KeyValuePair<int, List<SourceTypeNode>> level in dependencyLevels.OrderBy(kvp => kvp.Key))
             {
-                foreach (var node in level.Value)
+                foreach (SourceTypeNode node in level.Value)
                 {
-                    var dependencies = GetDependentNodes(node, graph).ToList();
-                    var dependents = graph.GetDependentsOf(node.FullName).ToList();
+                    List<SourceTypeNode> dependencies = GetDependentNodes(node, graph).ToList();
+                    List<SourceTypeDependency> dependents = graph.GetDependentsOf(node.FullName).ToList();
                     
                     processingPlan.Add(new NodeProcessingInfo
                     {
@@ -239,9 +240,9 @@ namespace MCPCSharpRelevancy.Extensions
 
             visiting.Add(node);
 
-            foreach (var dependency in getDependencies(node))
+            foreach (T dependency in getDependencies(node))
             {
-                var cycle = TopologicalSortDFS(dependency, getDependencies, visited, visiting, result);
+                List<T> cycle = TopologicalSortDFS(dependency, getDependencies, visited, visiting, result);
                 if (cycle.Any())
                 {
                     cycle.Insert(0, node);
@@ -262,11 +263,11 @@ namespace MCPCSharpRelevancy.Extensions
             List<List<T>> cycles) where T : class
         {
             // Create a modified dependency function that breaks cycles
-            var cyclicNodes = cycles.SelectMany(c => c).ToHashSet();
-            var brokenEdges = new HashSet<(T, T)>();
+            HashSet<T> cyclicNodes = cycles.SelectMany(c => c).ToHashSet();
+            HashSet<(T, T)> brokenEdges = new HashSet<(T, T)>();
 
             // Break cycles by removing one edge from each cycle
-            foreach (var cycle in cycles)
+            foreach (List<T> cycle in cycles)
             {
                 if (cycle.Count >= 2)
                 {
@@ -281,11 +282,11 @@ namespace MCPCSharpRelevancy.Extensions
             };
 
             // Resort with broken cycles
-            var result = new List<T>();
-            var visited = new HashSet<T>();
-            var visiting = new HashSet<T>();
+            List<T> result = new List<T>();
+            HashSet<T> visited = new HashSet<T>();
+            HashSet<T> visiting = new HashSet<T>();
 
-            foreach (var node in nodes)
+            foreach (T node in nodes)
             {
                 if (!visited.Contains(node))
                 {
@@ -306,14 +307,14 @@ namespace MCPCSharpRelevancy.Extensions
 
         private static bool IsInCycle(SourceTypeNode node, SourceDependencyGraph graph)
         {
-            var cycles = graph.FindCircularDependencies();
+            List<List<SourceTypeNode>> cycles = graph.FindCircularDependencies();
             return cycles.Any(cycle => cycle.Contains(node));
         }
 
         private static bool CanProcessInParallel(SourceTypeNode node, List<SourceTypeNode> levelNodes, SourceDependencyGraph graph)
         {
             // Nodes can be processed in parallel if they don't depend on each other within the same level
-            var dependencies = GetDependentNodes(node, graph).ToHashSet();
+            HashSet<SourceTypeNode> dependencies = GetDependentNodes(node, graph).ToHashSet();
             return !levelNodes.Any(otherNode => 
                 otherNode != node && dependencies.Contains(otherNode));
         }
@@ -374,54 +375,54 @@ namespace MCPCSharpRelevancy.Examples
         public static void DemonstrateTopologicalSorting(SourceDependencyGraph graph)
         {
             // Example 1: Sort all nodes by dependency order
-            var allNodes = graph.Nodes.Values;
-            var sortedNodes = allNodes.ToTopologicalOrder(graph);
+            Dictionary<string, SourceTypeNode>.ValueCollection allNodes = graph.Nodes.Values;
+            List<SourceTypeNode> sortedNodes = allNodes.ToTopologicalOrder(graph);
             
             Console.WriteLine("=== Topological Sort (Least to Most Dependent) ===");
-            foreach (var node in sortedNodes)
+            foreach (SourceTypeNode node in sortedNodes)
             {
-                var depCount = node.Dependencies.Count;
+                int depCount = node.Dependencies.Count;
                 Console.WriteLine($"{node.Name} (Dependencies: {depCount})");
             }
 
             // Example 2: Sort dependencies for processing
-            var allDependencies = graph.AllDependencies;
-            var sortedDependencies = allDependencies.ToProcessingOrder(graph);
+            IEnumerable<SourceTypeDependency> allDependencies = graph.AllDependencies;
+            List<SourceTypeDependency> sortedDependencies = allDependencies.ToProcessingOrder(graph);
             
             Console.WriteLine("\n=== Dependency Processing Order ===");
-            foreach (var dep in sortedDependencies.Take(10))
+            foreach (SourceTypeDependency dep in sortedDependencies.Take(10))
             {
                 Console.WriteLine($"{dep.SourceType.Name} -> {dep.TargetType.Name} ({dep.DependencyType})");
             }
 
             // Example 3: Group by dependency levels
-            var dependencyLevels = allNodes.GroupByDependencyLevel(graph);
+            Dictionary<int, List<SourceTypeNode>> dependencyLevels = allNodes.GroupByDependencyLevel(graph);
             
             Console.WriteLine("\n=== Dependency Levels ===");
-            foreach (var level in dependencyLevels.OrderBy(kvp => kvp.Key))
+            foreach (KeyValuePair<int, List<SourceTypeNode>> level in dependencyLevels.OrderBy(kvp => kvp.Key))
             {
                 Console.WriteLine($"Level {level.Key}: {string.Join(", ", level.Value.Select(n => n.Name))}");
             }
 
             // Example 4: Get detailed processing plan
-            var processingPlan = allNodes.GetProcessingPlan(graph);
+            List<NodeProcessingInfo> processingPlan = allNodes.GetProcessingPlan(graph);
             
             Console.WriteLine("\n=== Processing Plan ===");
-            foreach (var info in processingPlan.Take(10))
+            foreach (NodeProcessingInfo info in processingPlan.Take(10))
             {
                 Console.WriteLine(info);
             }
 
             // Example 5: Process nodes in dependency order
             Console.WriteLine("\n=== Sequential Processing ===");
-            foreach (var node in sortedNodes)
+            foreach (SourceTypeNode node in sortedNodes)
             {
                 ProcessNode(node);
             }
 
             // Example 6: Process by levels (can be parallelized within levels)
             Console.WriteLine("\n=== Level-by-Level Processing ===");
-            foreach (var level in dependencyLevels.OrderBy(kvp => kvp.Key))
+            foreach (KeyValuePair<int, List<SourceTypeNode>> level in dependencyLevels.OrderBy(kvp => kvp.Key))
             {
                 Console.WriteLine($"Processing Level {level.Key}...");
                 
@@ -442,27 +443,27 @@ namespace MCPCSharpRelevancy.Examples
         public static void HandleSpecificUseCase(SourceDependencyGraph graph)
         {
             // Use case: Process only types from a specific namespace in dependency order
-            var domainTypes = graph.Nodes.Values
+            List<SourceTypeNode> domainTypes = graph.Nodes.Values
                 .Where(n => n.Namespace.Contains("Domain"))
                 .ToList();
 
-            var sortedDomainTypes = domainTypes.ToTopologicalOrder(graph, CycleHandling.BreakCycles);
+            List<SourceTypeNode> sortedDomainTypes = domainTypes.ToTopologicalOrder(graph, CycleHandling.BreakCycles);
 
             Console.WriteLine("=== Domain Types Processing Order ===");
-            foreach (var type in sortedDomainTypes)
+            foreach (SourceTypeNode type in sortedDomainTypes)
             {
                 Console.WriteLine($"{type.FullName} -> Dependencies: {type.Dependencies.Count}");
             }
 
             // Use case: Get types that can be processed in parallel
-            var processingPlan = domainTypes.GetProcessingPlan(graph);
-            var parallelGroups = processingPlan
+            List<NodeProcessingInfo> processingPlan = domainTypes.GetProcessingPlan(graph);
+            List<IGrouping<int, NodeProcessingInfo>> parallelGroups = processingPlan
                 .Where(p => p.CanProcessInParallel)
                 .GroupBy(p => p.DependencyLevel)
                 .ToList();
 
             Console.WriteLine("\n=== Parallel Processing Opportunities ===");
-            foreach (var group in parallelGroups)
+            foreach (IGrouping<int, NodeProcessingInfo> group in parallelGroups)
             {
                 Console.WriteLine($"Level {group.Key}: {group.Count()} types can be processed in parallel");
             }

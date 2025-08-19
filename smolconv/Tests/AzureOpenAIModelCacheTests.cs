@@ -14,10 +14,10 @@ namespace SmolConv.Tests
         public void TestCacheDirectoryCreation()
         {
             // Arrange
-            var model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
+            AzureOpenAIModel model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
             
             // Act
-            var cacheDir = Path.Combine(
+            string cacheDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "smolconv",
                 ".cache"
@@ -31,15 +31,15 @@ namespace SmolConv.Tests
         public void TestCacheKeyGeneration()
         {
             // Arrange
-            var model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
-            var messages = new List<ChatMessage>
+            AzureOpenAIModel model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
+            List<ChatMessage> messages = new List<ChatMessage>
             {
                 new ChatMessage(MessageRole.User, "Hello, how are you?")
             };
             
             // Act
-            var cacheKey1 = model.GenerateCacheKey(messages, null);
-            var cacheKey2 = model.GenerateCacheKey(messages, null);
+            string cacheKey1 = model.GenerateCacheKey(messages, null);
+            string cacheKey2 = model.GenerateCacheKey(messages, null);
             
             // Assert
             Assert.NotNull(cacheKey1);
@@ -51,19 +51,19 @@ namespace SmolConv.Tests
         public void TestCacheKeyUniqueness()
         {
             // Arrange
-            var model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
-            var messages1 = new List<ChatMessage>
+            AzureOpenAIModel model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
+            List<ChatMessage> messages1 = new List<ChatMessage>
             {
                 new ChatMessage(MessageRole.User, "Hello")
             };
-            var messages2 = new List<ChatMessage>
+            List<ChatMessage> messages2 = new List<ChatMessage>
             {
                 new ChatMessage(MessageRole.User, "Hello there")
             };
             
             // Act
-            var cacheKey1 = model.GenerateCacheKey(messages1, null);
-            var cacheKey2 = model.GenerateCacheKey(messages2, null);
+            string cacheKey1 = model.GenerateCacheKey(messages1, null);
+            string cacheKey2 = model.GenerateCacheKey(messages2, null);
             
             // Assert
             Assert.NotEqual(cacheKey1, cacheKey2); // Different inputs should produce different keys
@@ -73,10 +73,10 @@ namespace SmolConv.Tests
         public void TestCacheStats()
         {
             // Arrange
-            var model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
+            AzureOpenAIModel model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
             
             // Act
-            var stats = model.GetCacheStats();
+            Dictionary<string, object> stats = model.GetCacheStats();
             
             // Assert
             Assert.NotNull(stats);
@@ -90,11 +90,11 @@ namespace SmolConv.Tests
         public void TestCacheClear()
         {
             // Arrange
-            var model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
+            AzureOpenAIModel model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
             
             // Act
             model.ClearCache();
-            var stats = model.GetCacheStats();
+            Dictionary<string, object> stats = model.GetCacheStats();
             
             // Assert
             Assert.Equal(0, Convert.ToInt32(stats["file_count"]));
@@ -104,7 +104,7 @@ namespace SmolConv.Tests
         public void TestCacheCleanup()
         {
             // Arrange
-            var model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
+            AzureOpenAIModel model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
             
             // Act
             model.CleanupExpiredCache();
@@ -118,10 +118,10 @@ namespace SmolConv.Tests
         public void TestToDictIncludesCacheInfo()
         {
             // Arrange
-            var model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
+            AzureOpenAIModel model = new AzureOpenAIModel(_testModelId, _testEndpoint, _testApiKey);
             
             // Act
-            var dict = model.ToDict();
+            Dictionary<string, object> dict = model.ToDict();
             
             // Assert
             Assert.True(dict.ContainsKey("cache_directory"));

@@ -59,18 +59,18 @@ namespace SmolConv.Core
             kwargs = ConvertArgumentsToKwargs(args, kwargs);
 
             // Comprehensive validation
-            var nullableKwargs = kwargs?.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value) ?? new Dictionary<string, object?>();
+            Dictionary<string, object?> nullableKwargs = kwargs?.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value) ?? new Dictionary<string, object?>();
             Validation.ToolArgumentValidator.ValidateToolArguments(this, nullableKwargs);
 
             // Sanitize inputs if requested
             if (sanitizeInputsOutputs)
             {
-                var handled = AgentTypeMapping.HandleAgentInputTypes(args ?? Array.Empty<object?>(), kwargs ?? new Dictionary<string, object>());
+                (object?[] args, Dictionary<string, object> kwargs) handled = AgentTypeMapping.HandleAgentInputTypes(args ?? Array.Empty<object?>(), kwargs ?? new Dictionary<string, object>());
                 args = handled.args;
                 kwargs = handled.kwargs;
             }
 
-            var result = Forward(args, kwargs);
+            object? result = Forward(args, kwargs);
 
             // Sanitize outputs if requested
             if (sanitizeInputsOutputs)
@@ -146,12 +146,12 @@ namespace SmolConv.Core
                 throw new InvalidOperationException($"Output type '{OutputType}' is not authorized. Must be one of: {string.Join(", ", AuthorizedTypes)}");
 
             // Validate inputs
-            foreach (var (inputName, inputSpec) in Inputs)
+            foreach ((string inputName, Dictionary<string, object> inputSpec) in Inputs)
             {
                 if (!inputSpec.ContainsKey("type") || !inputSpec.ContainsKey("description"))
                     throw new InvalidOperationException($"Input '{inputName}' must have 'type' and 'description' keys");
 
-                var inputType = inputSpec["type"];
+                object inputType = inputSpec["type"];
                 if (inputType is string typeStr)
                 {
                     if (!AuthorizedTypes.Contains(typeStr))
@@ -177,31 +177,31 @@ namespace SmolConv.Core
         /// <returns>Validation result</returns>
         protected virtual ToolValidationResult ValidateArguments(object[]? args, Dictionary<string, object>? kwargs)
         {
-            var errors = new List<string>();
+            List<string> errors = new List<string>();
 
             if (kwargs != null)
             {
                 // Check for unknown arguments
-                foreach (var key in kwargs.Keys)
+                foreach (string key in kwargs.Keys)
                 {
                     if (!Inputs.ContainsKey(key))
                         errors.Add($"Unknown argument: {key}");
                 }
 
                 // Check required arguments
-                foreach (var (inputName, inputSpec) in Inputs)
+                foreach ((string inputName, Dictionary<string, object> inputSpec) in Inputs)
                 {
-                    var isNullable = inputSpec.TryGetValue("nullable", out var nullableValue) && 
-                                   nullableValue is bool nullable && nullable;
+                    bool isNullable = inputSpec.TryGetValue("nullable", out object? nullableValue) && 
+                                      nullableValue is bool nullable && nullable;
 
                     if (!kwargs.ContainsKey(inputName) && !isNullable)
                         errors.Add($"Required argument missing: {inputName}");
                 }
 
                 // Validate argument types
-                foreach (var (key, value) in kwargs)
+                foreach ((string key, object value) in kwargs)
                 {
-                    if (Inputs.TryGetValue(key, out var inputSpec))
+                    if (Inputs.TryGetValue(key, out Dictionary<string, object>? inputSpec))
                     {
                         if (!ValidateArgumentType(value, inputSpec))
                             errors.Add($"Argument '{key}' has invalid type");
@@ -220,23 +220,23 @@ namespace SmolConv.Core
         /// <returns>True if valid, false otherwise</returns>
         protected virtual bool ValidateArgumentType(object value, Dictionary<string, object> inputSpec)
         {
-            if (!inputSpec.TryGetValue("type", out var typeObj))
+            if (!inputSpec.TryGetValue("type", out object? typeObj))
                 return false;
 
             if (value == null)
             {
-                return inputSpec.TryGetValue("nullable", out var nullableValue) && 
+                return inputSpec.TryGetValue("nullable", out object? nullableValue) && 
                        nullableValue is bool nullable && nullable;
             }
 
-            var expectedTypes = typeObj switch
+            string[] expectedTypes = typeObj switch
             {
                 string singleType => new[] { singleType },
                 string[] multipleTypes => multipleTypes,
                 _ => Array.Empty<string>()
             };
 
-            var actualType = GetJsonSchemaType(value);
+            string actualType = GetJsonSchemaType(value);
             
             return expectedTypes.Contains("any") || 
                    expectedTypes.Contains(actualType) ||
@@ -250,7 +250,7 @@ namespace SmolConv.Core
         /// <returns>The JSON schema type string</returns>
         protected virtual string GetJsonSchemaType(object value)
         {
-            var result = value switch
+            string result = value switch
             {
                 null => "null",
                 bool => "boolean",

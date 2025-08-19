@@ -17,8 +17,8 @@ namespace SmolConv.Tests
         public Phase2StateManagementTests()
         {
             // Setup test agent with mock model
-            var mockModel = new MockModel();
-            var tools = new List<Tool>();
+            MockModel mockModel = new MockModel();
+            List<Tool> tools = new List<Tool>();
             _agent = new ToolCallingAgent(tools, mockModel);
             
             // Setup test state
@@ -36,7 +36,7 @@ namespace SmolConv.Tests
             };
 
             // Set state in agent
-            foreach (var kvp in _testState)
+            foreach (KeyValuePair<string, object> kvp in _testState)
             {
                 _agent.State[kvp.Key] = kvp.Value;
             }
@@ -46,14 +46,14 @@ namespace SmolConv.Tests
         public void SubstituteStateVariables_WithSimpleString_ShouldSubstitute()
         {
             // Arrange
-            var arguments = new Dictionary<string, object>
+            Dictionary<string, object> arguments = new Dictionary<string, object>
             {
                 ["name"] = "user_name",
                 ["age"] = "user_age"
             };
 
             // Act
-            var result = _agent.SubstituteStateVariables(arguments) as Dictionary<string, object>;
+            Dictionary<string, object>? result = _agent.SubstituteStateVariables(arguments) as Dictionary<string, object>;
 
             // Assert
             Assert.NotNull(result);
@@ -65,7 +65,7 @@ namespace SmolConv.Tests
         public void SubstituteStateVariables_WithNestedDictionary_ShouldSubstituteRecursively()
         {
             // Arrange
-            var arguments = new Dictionary<string, object>
+            Dictionary<string, object> arguments = new Dictionary<string, object>
             {
                 ["user"] = new Dictionary<string, object>
                 {
@@ -75,15 +75,15 @@ namespace SmolConv.Tests
             };
 
             // Act
-            var result = _agent.SubstituteStateVariables(arguments) as Dictionary<string, object>;
+            Dictionary<string, object>? result = _agent.SubstituteStateVariables(arguments) as Dictionary<string, object>;
 
             // Assert
             Assert.NotNull(result);
-            var user = result["user"] as Dictionary<string, object>;
+            Dictionary<string, object>? user = result["user"] as Dictionary<string, object>;
             Assert.NotNull(user);
             Assert.Equal("John Doe", user["name"]);
             
-            var preferences = user["preferences"] as Dictionary<string, object>;
+            Dictionary<string, object>? preferences = user["preferences"] as Dictionary<string, object>;
             Assert.NotNull(preferences);
             Assert.Equal("dark", preferences["theme"]);
             Assert.Equal("en", preferences["language"]);
@@ -93,25 +93,25 @@ namespace SmolConv.Tests
         public void SubstituteStateVariables_WithArray_ShouldSubstituteElements()
         {
             // Arrange
-            var arguments = new Dictionary<string, object>
+            Dictionary<string, object> arguments = new Dictionary<string, object>
             {
                 ["hobbies"] = "user_hobbies",
                 ["mixed_array"] = new List<object> { "user_name", "user_age", "non_state_value" }
             };
 
             // Act
-            var result = _agent.SubstituteStateVariables(arguments) as Dictionary<string, object>;
+            Dictionary<string, object>? result = _agent.SubstituteStateVariables(arguments) as Dictionary<string, object>;
 
             // Assert
             Assert.NotNull(result);
             
-            var hobbies = result["hobbies"] as List<object>;
+            List<object>? hobbies = result["hobbies"] as List<object>;
             Assert.NotNull(hobbies);
             Assert.Contains("reading", hobbies);
             Assert.Contains("swimming", hobbies);
             Assert.Contains("coding", hobbies);
 
-            var mixedArray = result["mixed_array"] as List<object>;
+            List<object>? mixedArray = result["mixed_array"] as List<object>;
             Assert.NotNull(mixedArray);
             Assert.Equal("John Doe", mixedArray[0]);
             Assert.Equal(30, mixedArray[1]);
@@ -122,14 +122,14 @@ namespace SmolConv.Tests
         public void ValidateStateVariables_WithValidReferences_ShouldNotThrow()
         {
             // Arrange
-            var arguments = new Dictionary<string, object>
+            Dictionary<string, object> arguments = new Dictionary<string, object>
             {
                 ["name"] = "user_name",
                 ["age"] = "user_age"
             };
 
             // Act & Assert
-            var exception = Record.Exception(() => _agent.ValidateStateVariables(arguments));
+            Exception? exception = Record.Exception(() => _agent.ValidateStateVariables(arguments));
             Assert.Null(exception);
         }
 
@@ -137,14 +137,14 @@ namespace SmolConv.Tests
         public void ValidateStateVariables_WithMissingReferences_ShouldThrowArgumentException()
         {
             // Arrange
-            var arguments = new Dictionary<string, object>
+            Dictionary<string, object> arguments = new Dictionary<string, object>
             {
                 ["name"] = "user_name",
                 ["missing_var"] = "non_existent_state_var"
             };
 
             // Act & Assert
-            var exception = Assert.Throws<ArgumentException>(() => 
+            ArgumentException exception = Assert.Throws<ArgumentException>(() => 
                 _agent.ValidateStateVariables(arguments));
             
             Assert.Contains("non_existent_state_var", exception.Message);
@@ -154,7 +154,7 @@ namespace SmolConv.Tests
         public void ValidateStateVariables_WithNestedMissingReferences_ShouldThrowArgumentException()
         {
             // Arrange
-            var arguments = new Dictionary<string, object>
+            Dictionary<string, object> arguments = new Dictionary<string, object>
             {
                 ["user"] = new Dictionary<string, object>
                 {
@@ -164,7 +164,7 @@ namespace SmolConv.Tests
             };
 
             // Act & Assert
-            var exception = Assert.Throws<ArgumentException>(() => 
+            ArgumentException exception = Assert.Throws<ArgumentException>(() => 
                 _agent.ValidateStateVariables(arguments));
             
             Assert.Contains("non_existent_state_var", exception.Message);
@@ -174,13 +174,13 @@ namespace SmolConv.Tests
         public void NullableParameterHandler_WithNullableParameter_ShouldAllowNull()
         {
             // Arrange
-            var arguments = new Dictionary<string, object?>
+            Dictionary<string, object?> arguments = new Dictionary<string, object?>
             {
                 ["required_param"] = "value"
                 // nullable_param is missing (null)
             };
 
-            var inputs = new Dictionary<string, Dictionary<string, object>>
+            Dictionary<string, Dictionary<string, object>> inputs = new Dictionary<string, Dictionary<string, object>>
             {
                 ["required_param"] = new Dictionary<string, object>
                 {
@@ -195,7 +195,7 @@ namespace SmolConv.Tests
             };
 
             // Act & Assert
-            var exception = Record.Exception(() => 
+            Exception? exception = Record.Exception(() => 
                 NullableParameterHandler.ValidateNullableParameters(arguments, inputs));
             Assert.Null(exception);
         }
@@ -204,12 +204,12 @@ namespace SmolConv.Tests
         public void NullableParameterHandler_WithNonNullableParameter_ShouldThrowOnNull()
         {
             // Arrange
-            var arguments = new Dictionary<string, object?>
+            Dictionary<string, object?> arguments = new Dictionary<string, object?>
             {
                 ["required_param"] = null
             };
 
-            var inputs = new Dictionary<string, Dictionary<string, object>>
+            Dictionary<string, Dictionary<string, object>> inputs = new Dictionary<string, Dictionary<string, object>>
             {
                 ["required_param"] = new Dictionary<string, object>
                 {
@@ -219,7 +219,7 @@ namespace SmolConv.Tests
             };
 
             // Act & Assert
-            var exception = Assert.Throws<ArgumentNullException>(() => 
+            ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() => 
                 NullableParameterHandler.ValidateNullableParameters(arguments, inputs));
             
             Assert.Equal("required_param", exception.ParamName);
@@ -229,13 +229,13 @@ namespace SmolConv.Tests
         public void NullableParameterHandler_WithOptionalParameter_ShouldAllowMissing()
         {
             // Arrange
-            var arguments = new Dictionary<string, object?>
+            Dictionary<string, object?> arguments = new Dictionary<string, object?>
             {
                 ["required_param"] = "value"
                 // optional_param is missing
             };
 
-            var inputs = new Dictionary<string, Dictionary<string, object>>
+            Dictionary<string, Dictionary<string, object>> inputs = new Dictionary<string, Dictionary<string, object>>
             {
                 ["required_param"] = new Dictionary<string, object>
                 {
@@ -250,7 +250,7 @@ namespace SmolConv.Tests
             };
 
             // Act & Assert
-            var exception = Record.Exception(() => 
+            Exception? exception = Record.Exception(() => 
                 NullableParameterHandler.ValidateNullableParameters(arguments, inputs));
             Assert.Null(exception);
         }
@@ -259,13 +259,13 @@ namespace SmolConv.Tests
         public void NullableParameterHandler_WithRequiredParameter_ShouldThrowOnMissing()
         {
             // Arrange
-            var arguments = new Dictionary<string, object?>
+            Dictionary<string, object?> arguments = new Dictionary<string, object?>
             {
                 ["provided_param"] = "value"
                 // required_param is missing
             };
 
-            var inputs = new Dictionary<string, Dictionary<string, object>>
+            Dictionary<string, Dictionary<string, object>> inputs = new Dictionary<string, Dictionary<string, object>>
             {
                 ["provided_param"] = new Dictionary<string, object>
                 {
@@ -280,7 +280,7 @@ namespace SmolConv.Tests
             };
 
             // Act & Assert
-            var exception = Assert.Throws<ArgumentException>(() => 
+            ArgumentException exception = Assert.Throws<ArgumentException>(() => 
                 NullableParameterHandler.ValidateNullableParameters(arguments, inputs));
             
             Assert.Contains("required_param", exception.Message);
@@ -290,14 +290,14 @@ namespace SmolConv.Tests
         public void IsNullable_WithNullableSchema_ShouldReturnTrue()
         {
             // Arrange
-            var schema = new Dictionary<string, object>
+            Dictionary<string, object> schema = new Dictionary<string, object>
             {
                 ["type"] = "string",
                 ["nullable"] = true
             };
 
             // Act
-            var result = NullableParameterHandler.IsNullable(schema);
+            bool result = NullableParameterHandler.IsNullable(schema);
 
             // Assert
             Assert.True(result);
@@ -307,14 +307,14 @@ namespace SmolConv.Tests
         public void IsNullable_WithNonNullableSchema_ShouldReturnFalse()
         {
             // Arrange
-            var schema = new Dictionary<string, object>
+            Dictionary<string, object> schema = new Dictionary<string, object>
             {
                 ["type"] = "string",
                 ["nullable"] = false
             };
 
             // Act
-            var result = NullableParameterHandler.IsNullable(schema);
+            bool result = NullableParameterHandler.IsNullable(schema);
 
             // Assert
             Assert.False(result);
@@ -324,14 +324,14 @@ namespace SmolConv.Tests
         public void IsOptional_WithOptionalSchema_ShouldReturnTrue()
         {
             // Arrange
-            var schema = new Dictionary<string, object>
+            Dictionary<string, object> schema = new Dictionary<string, object>
             {
                 ["type"] = "string",
                 ["optional"] = true
             };
 
             // Act
-            var result = NullableParameterHandler.IsOptional(schema);
+            bool result = NullableParameterHandler.IsOptional(schema);
 
             // Assert
             Assert.True(result);
@@ -341,14 +341,14 @@ namespace SmolConv.Tests
         public void IsOptional_WithRequiredSchema_ShouldReturnFalse()
         {
             // Arrange
-            var schema = new Dictionary<string, object>
+            Dictionary<string, object> schema = new Dictionary<string, object>
             {
                 ["type"] = "string",
                 ["optional"] = false
             };
 
             // Act
-            var result = NullableParameterHandler.IsOptional(schema);
+            bool result = NullableParameterHandler.IsOptional(schema);
 
             // Assert
             Assert.False(result);
@@ -366,8 +366,8 @@ namespace SmolConv.Tests
 
         public override Task<ChatMessage> Generate(List<ChatMessage> messages, ModelCompletionOptions? options = null)
         {
-            var lastMessage = messages.LastOrDefault();
-            var content = lastMessage?.Content?.ToString() ?? "";
+            ChatMessage? lastMessage = messages.LastOrDefault();
+            string content = lastMessage?.Content?.ToString() ?? "";
             
             // Return appropriate mock response based on the prompt content
             string response;

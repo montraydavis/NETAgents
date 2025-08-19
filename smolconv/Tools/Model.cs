@@ -89,7 +89,7 @@ namespace SmolConv.Tools
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             // Default implementation: convert synchronous Generate to single stream item
-            var result = await GenerateAsync(messages, options, cancellationToken);
+            ChatMessage result = await GenerateAsync(messages, options, cancellationToken);
 
             if (result.Content is string content)
             {
@@ -115,7 +115,7 @@ namespace SmolConv.Tools
         /// <returns>Dictionary representation of the model</returns>
         public virtual Dictionary<string, object> ToDict()
         {
-            var result = new Dictionary<string, object>(AdditionalArguments)
+            Dictionary<string, object> result = new Dictionary<string, object>(AdditionalArguments)
             {
                 ["model_id"] = ModelId ?? string.Empty,
                 ["flatten_messages_as_text"] = FlattenMessagesAsText,
@@ -146,7 +146,7 @@ namespace SmolConv.Tools
             List<ChatMessage> messages,
             ModelCompletionOptions? options = null)
         {
-            var args = new Dictionary<string, object>(AdditionalArguments)
+            Dictionary<string, object> args = new Dictionary<string, object>(AdditionalArguments)
             {
                 ["messages"] = ProcessMessages(messages, options)
             };
@@ -180,7 +180,7 @@ namespace SmolConv.Tools
             // Add any additional parameters
             if (options?.AdditionalParameters != null)
             {
-                foreach (var kvp in options.AdditionalParameters)
+                foreach (KeyValuePair<string, object> kvp in options.AdditionalParameters)
                 {
                     args[kvp.Key] = kvp.Value;
                 }
@@ -199,11 +199,11 @@ namespace SmolConv.Tools
             List<ChatMessage> messages,
             ModelCompletionOptions? options = null)
         {
-            var result = new List<Dictionary<string, object>>();
+            List<Dictionary<string, object>> result = new List<Dictionary<string, object>>();
 
-            foreach (var message in messages)
+            foreach (ChatMessage message in messages)
             {
-                var messageDict = new Dictionary<string, object>
+                Dictionary<string, object> messageDict = new Dictionary<string, object>
                 {
                     ["role"] = ConvertRole(message.Role, options?.CustomRoleConversions),
                     ["content"] = ProcessMessageContent(message.Content, options)
@@ -243,10 +243,10 @@ namespace SmolConv.Tools
             if (FlattenMessagesAsText && content is List<Dictionary<string, object>> contentList)
             {
                 // Extract text from structured content
-                var textParts = new List<string>();
-                foreach (var item in contentList)
+                List<string> textParts = new List<string>();
+                foreach (Dictionary<string, object> item in contentList)
                 {
-                    if (item.TryGetValue("text", out var text))
+                    if (item.TryGetValue("text", out object? text))
                     {
                         textParts.Add(text.ToString() ?? string.Empty);
                     }
@@ -265,9 +265,9 @@ namespace SmolConv.Tools
         /// <returns>Converted role</returns>
         protected virtual string ConvertRole(MessageRole role, Dictionary<string, string>? customConversions = null)
         {
-            var roleString = role.ToString().ToLower();
+            string roleString = role.ToString().ToLower();
 
-            if (customConversions != null && customConversions.TryGetValue(roleString, out var converted))
+            if (customConversions != null && customConversions.TryGetValue(roleString, out string? converted))
             {
                 return converted;
             }
@@ -282,9 +282,9 @@ namespace SmolConv.Tools
         /// <returns>Tool schemas</returns>
         protected virtual List<Dictionary<string, object>> ConvertToolsToSchema(List<BaseTool> tools)
         {
-            var schemas = new List<Dictionary<string, object>>();
+            List<Dictionary<string, object>> schemas = new List<Dictionary<string, object>>();
 
-            foreach (var tool in tools)
+            foreach (BaseTool tool in tools)
             {
                 // This would need to be implemented based on the specific tool schema format
                 // For now, return a basic schema
@@ -317,10 +317,10 @@ namespace SmolConv.Tools
             if (string.IsNullOrEmpty(ModelId))
                 return true;
 
-            var modelName = ModelId.Split('/').Length > 1 ? ModelId.Split('/')[1] : ModelId;
+            string? modelName = ModelId.Split('/').Length > 1 ? ModelId.Split('/')[1] : ModelId;
 
             // Models that don't support stop parameter (based on Python implementation)
-            var unsupportedPattern = @"^(o3[-\d]*|o4-mini[-\d]*|gpt-4.1(-mini|-nano)?[-\d]*)$";
+            string unsupportedPattern = @"^(o3[-\d]*|o4-mini[-\d]*|gpt-4.1(-mini|-nano)?[-\d]*)$";
             return !System.Text.RegularExpressions.Regex.IsMatch(modelName, unsupportedPattern);
         }
     }

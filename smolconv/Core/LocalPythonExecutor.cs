@@ -69,12 +69,12 @@ namespace SmolConv.Core
             _state["_print_outputs"] = _printOutputs;
             _state["print"] = new Action<object>(obj =>
             {
-                var output = obj?.ToString() ?? "None";
+                string output = obj?.ToString() ?? "None";
                 _printOutputs.AppendLine(output);
 
                 if (_maxPrintOutputsLength.HasValue && _printOutputs.Length > _maxPrintOutputsLength.Value)
                 {
-                    var excess = _printOutputs.Length - _maxPrintOutputsLength.Value;
+                    int excess = _printOutputs.Length - _maxPrintOutputsLength.Value;
                     _printOutputs.Remove(0, excess);
                 }
             });
@@ -103,11 +103,11 @@ namespace SmolConv.Core
                 _state.Remove("_final_answer");
 
                 // Execute the code using Python.NET or similar
-                var result = ExecutePythonCode(code);
+                object? result = ExecutePythonCode(code);
 
                 // Check if final answer was called
-                var isFinalAnswer = _state.ContainsKey("_final_answer");
-                var finalAnswer = isFinalAnswer ? _state["_final_answer"] : result;
+                bool isFinalAnswer = _state.ContainsKey("_final_answer");
+                object? finalAnswer = isFinalAnswer ? _state["_final_answer"] : result;
 
                 return new PythonExecutionResult(
                     output: finalAnswer,
@@ -132,8 +132,8 @@ namespace SmolConv.Core
         /// <param name="code">Code to validate</param>
         private void ValidateImports(string code)
         {
-            var imports = ExtractImports(code);
-            foreach (var import in imports)
+            List<string> imports = ExtractImports(code);
+            foreach (string import in imports)
             {
                 if (!IsImportAuthorized(import))
                 {
@@ -149,15 +149,15 @@ namespace SmolConv.Core
         /// <returns>List of imported modules</returns>
         private List<string> ExtractImports(string code)
         {
-            var imports = new List<string>();
+            List<string> imports = new List<string>();
 
             // Match "import xxx" and "from xxx import yyy"
-            var importPattern = @"^\s*(?:import\s+(\S+)|from\s+(\S+)\s+import)";
-            var matches = Regex.Matches(code, importPattern, RegexOptions.Multiline);
+            string importPattern = @"^\s*(?:import\s+(\S+)|from\s+(\S+)\s+import)";
+            MatchCollection matches = Regex.Matches(code, importPattern, RegexOptions.Multiline);
 
             foreach (Match match in matches)
             {
-                var importName = match.Groups[1].Value;
+                string importName = match.Groups[1].Value;
                 if (string.IsNullOrEmpty(importName))
                     importName = match.Groups[2].Value;
 
@@ -194,7 +194,7 @@ namespace SmolConv.Core
         /// <param name="variables">Variables to send</param>
         public override void SendVariables(Dictionary<string, object> variables)
         {
-            foreach (var kvp in variables)
+            foreach (KeyValuePair<string, object> kvp in variables)
             {
                 _state[kvp.Key] = kvp.Value;
             }
@@ -207,7 +207,7 @@ namespace SmolConv.Core
         public override void SendTools(Dictionary<string, BaseTool> tools)
         {
             _tools.Clear();
-            foreach (var kvp in tools)
+            foreach (KeyValuePair<string, BaseTool> kvp in tools)
             {
                 _tools[kvp.Key] = kvp.Value;
                 _state[kvp.Key] = kvp.Value;
@@ -277,7 +277,7 @@ namespace SmolConv.Core
         {
             try
             {
-                var startInfo = new ProcessStartInfo
+                ProcessStartInfo startInfo = new ProcessStartInfo
                 {
                     FileName = "docker",
                     Arguments = $"run -d -i --rm {_imageName} python -u",
@@ -286,7 +286,7 @@ namespace SmolConv.Core
                     RedirectStandardError = true
                 };
 
-                using var process = Process.Start(startInfo);
+                using Process? process = Process.Start(startInfo);
                 if (process == null)
                     throw new InvalidOperationException("Failed to start Docker process");
 
@@ -294,7 +294,7 @@ namespace SmolConv.Core
 
                 if (process.ExitCode != 0)
                 {
-                    var error = process.StandardError.ReadToEnd();
+                    string error = process.StandardError.ReadToEnd();
                     throw new InvalidOperationException($"Docker container failed to start: {error}");
                 }
 
@@ -320,11 +320,11 @@ namespace SmolConv.Core
             try
             {
                 // Prepare the Python code with proper encoding
-                var encodedCode = Convert.ToBase64String(Encoding.UTF8.GetBytes(code));
-                var pythonCommand = $"import base64; exec(base64.b64decode('{encodedCode}').decode('utf-8'))";
+                string encodedCode = Convert.ToBase64String(Encoding.UTF8.GetBytes(code));
+                string pythonCommand = $"import base64; exec(base64.b64decode('{encodedCode}').decode('utf-8'))";
 
                 // Execute in Docker container
-                var startInfo = new ProcessStartInfo
+                ProcessStartInfo startInfo = new ProcessStartInfo
                 {
                     FileName = "docker",
                     Arguments = $"exec -i {_containerId} python -c \"{pythonCommand}\"",
@@ -333,14 +333,14 @@ namespace SmolConv.Core
                     RedirectStandardError = true
                 };
 
-                using var process = Process.Start(startInfo);
+                using Process? process = Process.Start(startInfo);
                 if (process == null)
                     throw new InvalidOperationException("Failed to start Docker exec process");
 
                 process.WaitForExit(60000); // 60 second timeout
 
-                var output = process.StandardOutput.ReadToEnd();
-                var error = process.StandardError.ReadToEnd();
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
 
                 if (process.ExitCode != 0 && !string.IsNullOrEmpty(error))
                 {
@@ -353,8 +353,8 @@ namespace SmolConv.Core
                 }
 
                 // Parse output to determine if it's a final answer
-                var isFinalAnswer = output.Contains("FINAL_ANSWER:");
-                var finalOutput = isFinalAnswer ?
+                bool isFinalAnswer = output.Contains("FINAL_ANSWER:");
+                string finalOutput = isFinalAnswer ?
                     output.Substring(output.IndexOf("FINAL_ANSWER:") + 13).Trim() :
                     output;
 
@@ -381,14 +381,14 @@ namespace SmolConv.Core
         /// <param name="variables">Variables to send</param>
         public override void SendVariables(Dictionary<string, object> variables)
         {
-            foreach (var kvp in variables)
+            foreach (KeyValuePair<string, object> kvp in variables)
             {
                 _state[kvp.Key] = kvp.Value;
             }
 
             // Send variables to container via pickle or JSON
-            var serializedVars = JsonSerializer.Serialize(variables);
-            var code = $"import json; globals().update(json.loads('{serializedVars}'))";
+            string serializedVars = JsonSerializer.Serialize(variables);
+            string code = $"import json; globals().update(json.loads('{serializedVars}'))";
             Execute(code);
         }
 
@@ -400,7 +400,7 @@ namespace SmolConv.Core
         {
             // Tools would need to be serialized and sent to the container
             // This is a simplified implementation
-            foreach (var kvp in tools)
+            foreach (KeyValuePair<string, BaseTool> kvp in tools)
             {
                 _state[kvp.Key] = kvp.Value;
             }
@@ -425,7 +425,7 @@ namespace SmolConv.Core
             {
                 try
                 {
-                    var startInfo = new ProcessStartInfo
+                    ProcessStartInfo startInfo = new ProcessStartInfo
                     {
                         FileName = "docker",
                         Arguments = $"stop {_containerId}",
@@ -434,7 +434,7 @@ namespace SmolConv.Core
                         RedirectStandardError = true
                     };
 
-                    using var process = Process.Start(startInfo);
+                    using Process? process = Process.Start(startInfo);
                     process?.WaitForExit(10000);
 
                     _logger.Log($"Docker container stopped: {_containerId}", LogLevel.Debug);
@@ -511,17 +511,17 @@ namespace SmolConv.Core
                     templateId = _templateId
                 };
 
-                var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-                var response = await _httpClient.PostAsync("https://api.e2b.dev/sessions", content);
+                StringContent content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+                HttpResponseMessage response = await _httpClient.PostAsync("https://api.e2b.dev/sessions", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var error = await response.Content.ReadAsStringAsync();
+                    string error = await response.Content.ReadAsStringAsync();
                     throw new InvalidOperationException($"Failed to create E2B session: {error}");
                 }
 
-                var result = await response.Content.ReadAsStringAsync();
-                var sessionData = JsonSerializer.Deserialize<Dictionary<string, object>>(result);
+                string result = await response.Content.ReadAsStringAsync();
+                Dictionary<string, object>? sessionData = JsonSerializer.Deserialize<Dictionary<string, object>>(result);
                 _sessionId = sessionData?["sessionId"]?.ToString();
 
                 _logger.Log($"E2B session created: {_sessionId}", LogLevel.Debug);
@@ -561,12 +561,12 @@ namespace SmolConv.Core
                     language = "python"
                 };
 
-                var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-                var response = await _httpClient.PostAsync($"https://api.e2b.dev/sessions/{_sessionId}/exec", content, cancellationToken);
+                StringContent content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+                HttpResponseMessage response = await _httpClient.PostAsync($"https://api.e2b.dev/sessions/{_sessionId}/exec", content, cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                    string error = await response.Content.ReadAsStringAsync(cancellationToken);
                     return new PythonExecutionResult(
                         output: null,
                         logs: "",
@@ -575,12 +575,12 @@ namespace SmolConv.Core
                     );
                 }
 
-                var result = await response.Content.ReadAsStringAsync(cancellationToken);
-                var executionResult = JsonSerializer.Deserialize<Dictionary<string, object>>(result);
+                string result = await response.Content.ReadAsStringAsync(cancellationToken);
+                Dictionary<string, object>? executionResult = JsonSerializer.Deserialize<Dictionary<string, object>>(result);
 
-                var output = executionResult?.GetValueOrDefault("stdout")?.ToString() ?? "";
-                var errorOutput = executionResult?.GetValueOrDefault("stderr")?.ToString() ?? "";
-                var exitCode = executionResult?.GetValueOrDefault("exitCode")?.ToString() ?? "0";
+                string output = executionResult?.GetValueOrDefault("stdout")?.ToString() ?? "";
+                string errorOutput = executionResult?.GetValueOrDefault("stderr")?.ToString() ?? "";
+                string exitCode = executionResult?.GetValueOrDefault("exitCode")?.ToString() ?? "0";
 
                 if (exitCode != "0" && !string.IsNullOrEmpty(errorOutput))
                 {
@@ -592,8 +592,8 @@ namespace SmolConv.Core
                     );
                 }
 
-                var isFinalAnswer = output.Contains("FINAL_ANSWER:");
-                var finalOutput = isFinalAnswer ?
+                bool isFinalAnswer = output.Contains("FINAL_ANSWER:");
+                string finalOutput = isFinalAnswer ?
                     output.Substring(output.IndexOf("FINAL_ANSWER:") + 13).Trim() :
                     output;
 
@@ -620,14 +620,14 @@ namespace SmolConv.Core
         /// <param name="variables">Variables to send</param>
         public override void SendVariables(Dictionary<string, object> variables)
         {
-            foreach (var kvp in variables)
+            foreach (KeyValuePair<string, object> kvp in variables)
             {
                 _state[kvp.Key] = kvp.Value;
             }
 
             // Send variables via code execution
-            var serializedVars = JsonSerializer.Serialize(variables);
-            var code = $"import json; globals().update(json.loads('{serializedVars}'))";
+            string serializedVars = JsonSerializer.Serialize(variables);
+            string code = $"import json; globals().update(json.loads('{serializedVars}'))";
             Execute(code);
         }
 
@@ -637,7 +637,7 @@ namespace SmolConv.Core
         /// <param name="tools">Tools to send</param>
         public override void SendTools(Dictionary<string, BaseTool> tools)
         {
-            foreach (var kvp in tools)
+            foreach (KeyValuePair<string, BaseTool> kvp in tools)
             {
                 _state[kvp.Key] = kvp.Value;
             }
@@ -661,7 +661,7 @@ namespace SmolConv.Core
             {
                 try
                 {
-                    var response = _httpClient.DeleteAsync($"https://api.e2b.dev/sessions/{_sessionId}").GetAwaiter().GetResult();
+                    HttpResponseMessage response = _httpClient.DeleteAsync($"https://api.e2b.dev/sessions/{_sessionId}").GetAwaiter().GetResult();
                     _logger.Log($"E2B session deleted: {_sessionId}", LogLevel.Debug);
                 }
                 catch (Exception ex)
@@ -746,10 +746,10 @@ namespace SmolConv.Core
             {
                 // This would use Pyodide JavaScript API to execute Python code
                 // Placeholder implementation
-                var result = ExecutePyodideCode(code);
+                object? result = ExecutePyodideCode(code);
 
-                var isFinalAnswer = result?.ToString()?.Contains("FINAL_ANSWER:") == true;
-                var output = isFinalAnswer ?
+                bool isFinalAnswer = result?.ToString()?.Contains("FINAL_ANSWER:") == true;
+                object? output = isFinalAnswer ?
                     ExtractFinalAnswer(result?.ToString() ?? "") :
                     result;
 
@@ -790,7 +790,7 @@ namespace SmolConv.Core
         /// <returns>Final answer</returns>
         private string ExtractFinalAnswer(string output)
         {
-            var index = output.IndexOf("FINAL_ANSWER:");
+            int index = output.IndexOf("FINAL_ANSWER:");
             return index >= 0 ? output.Substring(index + 13).Trim() : output;
         }
 
@@ -800,7 +800,7 @@ namespace SmolConv.Core
         /// <param name="variables">Variables to send</param>
         public override void SendVariables(Dictionary<string, object> variables)
         {
-            foreach (var kvp in variables)
+            foreach (KeyValuePair<string, object> kvp in variables)
             {
                 _state[kvp.Key] = kvp.Value;
             }
@@ -814,7 +814,7 @@ namespace SmolConv.Core
         /// <param name="tools">Tools to send</param>
         public override void SendTools(Dictionary<string, BaseTool> tools)
         {
-            foreach (var kvp in tools)
+            foreach (KeyValuePair<string, BaseTool> kvp in tools)
             {
                 _state[kvp.Key] = kvp.Value;
             }

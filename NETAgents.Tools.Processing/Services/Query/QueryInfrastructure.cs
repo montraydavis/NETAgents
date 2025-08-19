@@ -19,11 +19,11 @@ public abstract class BaseQueryService
         string queryType,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
+        Stopwatch stopwatch = Stopwatch.StartNew();
         
         try
         {
-            var items = await dataProvider(cancellationToken);
+            List<T> items = await dataProvider(cancellationToken);
             stopwatch.Stop();
 
             return CreateSuccessResult(items, queryType, stopwatch.Elapsed);
@@ -44,15 +44,15 @@ public abstract class BaseQueryService
         Dictionary<string, object>? additionalMetadata = null,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
+        Stopwatch stopwatch = Stopwatch.StartNew();
         
         try
         {
-            var allItems = await dataProvider(cancellationToken);
-            var filteredItems = filter(allItems).ToList();
+            List<T> allItems = await dataProvider(cancellationToken);
+            List<T> filteredItems = filter(allItems).ToList();
             stopwatch.Stop();
 
-            var metadata = new Dictionary<string, object>
+            Dictionary<string, object> metadata = new Dictionary<string, object>
             {
                 ["QueryType"] = queryType,
                 ["FilteredFromTotal"] = allItems.Count,
@@ -61,7 +61,7 @@ public abstract class BaseQueryService
 
             if (additionalMetadata != null)
             {
-                foreach (var kvp in additionalMetadata)
+                foreach (KeyValuePair<string, object> kvp in additionalMetadata)
                 {
                     metadata[kvp.Key] = kvp.Value;
                 }
@@ -90,14 +90,14 @@ public abstract class BaseQueryService
         TimeSpan duration,
         Dictionary<string, object>? additionalMetadata = null)
     {
-        var metadata = new Dictionary<string, object>
+        Dictionary<string, object> metadata = new Dictionary<string, object>
         {
             ["QueryType"] = queryType
         };
 
         if (additionalMetadata != null)
         {
-            foreach (var kvp in additionalMetadata)
+            foreach (KeyValuePair<string, object> kvp in additionalMetadata)
             {
                 metadata[kvp.Key] = kvp.Value;
             }
