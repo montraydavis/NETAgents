@@ -35,14 +35,18 @@ public class Worker : BackgroundService
 
         try
         {
-            // Start file discovery and watcher
+            _logger.LogInformation("About to call StartFileDiscoveryAsync...");
             await StartFileDiscoveryAsync(stoppingToken);
-
-            // Start background processing workers
-            await StartProcessingWorkersAsync(stoppingToken);
-
-            // Main monitoring loop
-            await RunMonitoringLoopAsync(stoppingToken);
+            _logger.LogInformation("StartFileDiscoveryAsync completed");
+            
+            // Start monitoring loop concurrently
+            _logger.LogInformation("About to start monitoring loop...");
+            var monitoringTask = Task.Run(async () => await RunMonitoringLoopAsync(stoppingToken), stoppingToken);
+            _logger.LogInformation("Monitoring loop started");
+            
+            // Wait for cancellation - the processing tasks will run indefinitely until cancelled
+            _logger.LogInformation("About to wait for cancellation...");
+            await Task.Delay(Timeout.Infinite, stoppingToken);
         }
         catch (OperationCanceledException)
         {
@@ -55,7 +59,9 @@ public class Worker : BackgroundService
         }
         finally
         {
+            _logger.LogInformation("About to call CleanupAsync...");
             await CleanupAsync();
+            _logger.LogInformation("CleanupAsync completed");
         }
     }
 
@@ -63,15 +69,53 @@ public class Worker : BackgroundService
     {
         _logger.LogInformation("Starting file discovery service");
 
-        // Initial file discovery
-        var initialFiles = await _fileDiscoveryService.DiscoverFilesAsync(stoppingToken);
-        foreach (var job in initialFiles)
+        try
         {
-            await _queueService.EnqueueJobAsync(job, stoppingToken);
-        }
+            _logger.LogInformation("About to call DiscoverFilesAsync...");
+            var initialFiles = await _fileDiscoveryService.DiscoverFilesAsync(stoppingToken);
+            _logger.LogInformation("DiscoverFilesAsync completed, found {Count} files", initialFiles.Count());
+            
+            // Start processing workers BEFORE enqueuing jobs to prevent queue blocking
+            _logger.LogInformation("Starting processing workers before enqueuing jobs...");
+            await StartProcessingWorkersAsync(stoppingToken);
+            _logger.LogInformation("Processing workers started");
+            
+            _logger.LogInformation("Enqueuing {Count} discovered files", initialFiles.Count());
+            
+            int enqueued = 0;
+            foreach (var job in initialFiles)
+            {
+                try
+                {
+                    _logger.LogDebug("About to enqueue job {JobNumber}/{Total} - {JobId}", ++enqueued, initialFiles.Count(), job.Id);
+                    _logger.LogInformation("Enqueuing job {JobNumber}/{Total} for file: {FilePath}", enqueued, initialFiles.Count(), job.FilePath);
+                    
+                    await _queueService.EnqueueJobAsync(job, stoppingToken);
+                    _logger.LogDebug("Successfully enqueued job {JobNumber}/{Total} - {JobId}", enqueued, initialFiles.Count(), job.Id);
+                    
+                    if (enqueued % 10 == 0) // Log every 10th job
+                    {
+                        _logger.LogInformation("Enqueued {Count}/{Total} jobs", enqueued, initialFiles.Count());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to enqueue job {JobNumber} for file {FilePath}", enqueued, job.FilePath);
+                    // Continue with other jobs
+                }
+            }
 
-        // Start file watcher for new files
-        await _fileDiscoveryService.StartFileWatcherAsync(stoppingToken);
+            _logger.LogInformation("Finished enqueuing {Enqueued} initial files", enqueued);
+            
+            _logger.LogInformation("About to call StartFileWatcherAsync...");
+            await _fileDiscoveryService.StartFileWatcherAsync(stoppingToken);
+            _logger.LogInformation("StartFileWatcherAsync completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in StartFileDiscoveryAsync");
+            throw;
+        }
     }
 
     private async Task StartProcessingWorkersAsync(CancellationToken stoppingToken)
@@ -80,11 +124,23 @@ public class Worker : BackgroundService
 
         for (int i = 0; i < _options.MaxConcurrentProcessing; i++)
         {
-            var workerTask = Task.Run(async () => await ProcessFilesAsync(i, stoppingToken), stoppingToken);
+            var workerId = i; // Capture the loop variable
+            var workerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
             _processingTasks.Add(workerTask);
+            _logger.LogInformation("Started background worker {WorkerId}", workerId);
         }
 
-        _logger.LogInformation("All background processing workers started");
+        _logger.LogInformation("All {Count} background processing workers started", _processingTasks.Count);
+        
+        // Give workers a moment to start and log their status
+        await Task.Delay(1000, stoppingToken);
+        
+        // Log the status of processing tasks
+        for (int i = 0; i < _processingTasks.Count; i++)
+        {
+            var task = _processingTasks[i];
+            _logger.LogInformation("Worker {WorkerId} task status: {Status}", i, task.Status);
+        }
     }
 
     private async Task ProcessFilesAsync(int workerId, CancellationToken stoppingToken)
@@ -95,65 +151,78 @@ public class Worker : BackgroundService
         {
             try
             {
-                // Try to dequeue a job
+                _logger.LogDebug("Worker {WorkerId} attempting to dequeue job", workerId);
                 var job = await _queueService.DequeueJobAsync(stoppingToken);
                 
                 if (job == null)
                 {
                     // No jobs available, wait a bit before trying again
-                    await Task.Delay(1000, stoppingToken);
+                    _logger.LogDebug("Worker {WorkerId} found no jobs, waiting...", workerId);
+                    await Task.Delay(2000, stoppingToken); // Increased wait time to reduce CPU usage
                     continue;
                 }
 
-                await ProcessJobAsync(job, workerId, stoppingToken);
+                _logger.LogInformation("Worker {WorkerId} processing job {JobId} for file {FilePath}", workerId, job.Id, job.FilePath);
+                await ProcessJobWithResilience(job, workerId, stoppingToken);
             }
             catch (OperationCanceledException)
             {
+                _logger.LogInformation("Worker {WorkerId} cancelled", workerId);
                 break;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error in background worker {WorkerId}", workerId);
-                await Task.Delay(5000, stoppingToken); // Wait before retrying
+                await Task.Delay(5000, stoppingToken);
             }
         }
 
         _logger.LogInformation("Background worker {WorkerId} stopped", workerId);
     }
 
-    private async Task ProcessJobAsync(FileProcessingJob job, int workerId, CancellationToken stoppingToken)
+    private async Task ProcessJobWithResilience(FileProcessingJob job, int workerId, CancellationToken stoppingToken)
     {
         _logger.LogInformation("Worker {WorkerId} processing job {JobId} for file {FilePath}", 
             workerId, job.Id, job.FilePath);
 
         try
         {
-            var result = await _fileProcessorService.ProcessFileAsync(job, stoppingToken);
+            // Create a timeout token for this specific job
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            timeoutCts.CancelAfter(_options.ProcessingTimeout);
+
+            var result = await _fileProcessorService.ProcessFileAsync(job, timeoutCts.Token);
             _queueService.CompleteJob(job, true, result);
         }
-        catch (TimeoutException ex)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Job {JobId} timed out: {Error}", job.Id, ex.Message);
-            _queueService.CompleteJob(job, false, errorMessage: ex.Message);
+            _logger.LogInformation("Job {JobId} cancelled due to service shutdown", job.Id);
+            _queueService.CompleteJob(job, false, errorMessage: "Service shutdown");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Job {JobId} timed out after {Timeout}", job.Id, _options.ProcessingTimeout);
+            await HandleJobFailure(job, "Processing timeout", stoppingToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing job {JobId} for file {FilePath}", job.Id, job.FilePath);
-            
-            // Check if we should retry
-            if (job.RetryCount < _options.MaxRetryAttempts)
+            await HandleJobFailure(job, ex.Message, stoppingToken);
+        }
+    }
+
+    private async Task HandleJobFailure(FileProcessingJob job, string errorMessage, CancellationToken stoppingToken)
+    {
+        if (_queueService.ShouldRetryJob(job, errorMessage))
+        {
+            try
             {
-                _queueService.RetryJob(job, ex.Message);
-                
-                // Wait before retrying
-                await Task.Delay(_options.RetryDelay, stoppingToken);
-                
-                // Re-queue the job for retry
-                await _queueService.EnqueueJobAsync(job, stoppingToken);
+                await _queueService.EnqueueRetryJobAsync(job, stoppingToken);
             }
-            else
+            catch (Exception ex)
             {
-                _queueService.CompleteJob(job, false, errorMessage: ex.Message);
+                _logger.LogError(ex, "Failed to enqueue retry for job {JobId}", job.Id);
+                _queueService.CompleteJob(job, false, errorMessage: $"Retry failed: {ex.Message}");
             }
         }
     }
@@ -166,27 +235,19 @@ public class Worker : BackgroundService
         {
             try
             {
-                // Log queue statistics
-                var queueLength = await _queueService.GetQueueLengthAsync();
-                var activeJobs = await _queueService.GetActiveJobsAsync();
-                var activeJobCount = activeJobs.Count();
-
+                var stats = await _queueService.GetStatisticsAsync();
+                
                 _logger.LogInformation(
-                    "Queue Status - Pending: {QueueLength}, Active: {ActiveCount}, Total Workers: {WorkerCount}",
-                    queueLength, activeJobCount, _options.MaxConcurrentProcessing);
+                    "Queue Status - Pending: {Pending}, Active: {Active}, Completed: {Completed}, Failed: {Failed}, Avg Processing: {AvgTime:F2}s",
+                    stats.PendingJobs, stats.ActiveJobs, stats.CompletedJobs, stats.FailedJobs, 
+                    stats.AverageProcessingTime?.TotalSeconds ?? 0);
 
-                // Check if any processing tasks have failed
-                var failedTasks = _processingTasks.Where(t => t.IsFaulted).ToList();
-                if (failedTasks.Any())
-                {
-                    _logger.LogError("Some background processing tasks have failed");
-                    foreach (var task in failedTasks)
-                    {
-                        _logger.LogError("Task exception: {Exception}", task.Exception);
-                    }
-                }
+                // Check for failed processing tasks and restart them
+                await CheckAndRestartFailedWorkers(stoppingToken);
 
-                // Wait before next monitoring cycle
+                // Cleanup stale jobs periodically
+                await _queueService.CleanupStaleJobsAsync(stoppingToken);
+
                 await Task.Delay(_options.PollingInterval, stoppingToken);
             }
             catch (OperationCanceledException)
@@ -201,23 +262,63 @@ public class Worker : BackgroundService
         }
     }
 
+    private Task CheckAndRestartFailedWorkers(CancellationToken stoppingToken)
+    {
+        var failedTasks = _processingTasks.Where(t => t.IsFaulted || t.IsCompleted).ToList();
+        
+        if (failedTasks.Any())
+        {
+            _logger.LogWarning("Found {Count} failed/completed worker tasks, restarting them", failedTasks.Count);
+            
+            foreach (var failedTask in failedTasks)
+            {
+                _processingTasks.Remove(failedTask);
+                
+                if (failedTask.IsFaulted)
+                {
+                    _logger.LogError("Worker task failed: {Exception}", failedTask.Exception);
+                }
+                
+                // Start a new worker to replace the failed one
+                var workerId = _processingTasks.Count;
+                var newWorkerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
+                _processingTasks.Add(newWorkerTask);
+                
+                _logger.LogInformation("Restarted worker {WorkerId}", workerId);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
     private async Task CleanupAsync()
     {
         _logger.LogInformation("Cleaning up worker service");
 
         try
         {
-            // Stop file watcher
             await _fileDiscoveryService.StopFileWatcherAsync();
-
-            // Cancel processing
+            
+            _queueService.CompleteChannel();
             _processingCts.Cancel();
 
-            // Wait for processing tasks to complete
             if (_processingTasks.Any())
             {
                 _logger.LogInformation("Waiting for background processing tasks to complete");
-                await Task.WhenAll(_processingTasks);
+                
+                // Wait with timeout for graceful shutdown
+                var timeout = Task.Delay(TimeSpan.FromSeconds(30));
+                var completedTask = await Task.WhenAny(Task.WhenAll(_processingTasks), timeout);
+                
+                if (completedTask == timeout)
+                {
+                    _logger.LogWarning("Some processing tasks did not complete within timeout, forcing cancellation");
+                    _processingCts.Cancel(); // Force cancellation of remaining tasks
+                }
+                else
+                {
+                    _logger.LogInformation("All processing tasks completed successfully");
+                }
             }
 
             _logger.LogInformation("Worker service cleanup completed");
@@ -239,6 +340,7 @@ public class Worker : BackgroundService
     public override void Dispose()
     {
         _processingCts?.Dispose();
+        (_queueService as IDisposable)?.Dispose();
         base.Dispose();
     }
 }

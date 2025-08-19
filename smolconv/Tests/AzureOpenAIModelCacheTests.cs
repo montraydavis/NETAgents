@@ -10,7 +10,7 @@ namespace SmolConv.Tests
     {
         private readonly string _testEndpoint = "https://test-endpoint.openai.azure.com/";
         private readonly string _testApiKey = "test-api-key";
-        private readonly string _testModelId = "gpt-4o-mini";
+        private readonly string _testModelId = "gpt-4.1-nano";
 
         [Fact]
         public void TestCacheDirectoryCreation()

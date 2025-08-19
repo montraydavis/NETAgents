@@ -210,7 +210,7 @@ namespace SmolConv.Core
             try
             {
                 // 2. Argument Conversion
-                var processedArgs = ConvertAndProcessArguments(arguments);
+                var processedArgs = ConvertAndProcessArguments(arguments, tool);
                 
                 // 3. State Variable Validation
                 ValidateStateVariables(processedArgs);
@@ -259,14 +259,66 @@ namespace SmolConv.Core
         /// Converts and processes arguments to the expected format
         /// </summary>
         /// <param name="arguments">Raw arguments</param>
+        /// <param name="tool">The tool being called (for schema checking)</param>
         /// <returns>Processed arguments</returns>
-        private Dictionary<string, object> ConvertAndProcessArguments(object? arguments)
+        private Dictionary<string, object> ConvertAndProcessArguments(object? arguments, BaseTool? tool = null)
         {
             return arguments switch
             {
                 Dictionary<string, object> dict => dict,
                 null => new Dictionary<string, object>(),
-                _ => new Dictionary<string, object> { ["input"] = arguments }
+                _ => ConvertNonDictionaryArguments(arguments, tool)
+            };
+        }
+
+        /// <summary>
+        /// Converts non-dictionary arguments based on tool schema
+        /// </summary>
+        /// <param name="arguments">The arguments to convert</param>
+        /// <param name="tool">The tool being called</param>
+        /// <returns>Converted arguments</returns>
+        private Dictionary<string, object> ConvertNonDictionaryArguments(object? arguments, BaseTool? tool)
+        {
+            // If we have a tool and it's a Tool (not a managed agent), check its schema
+            if (tool is Tool t)
+            {
+                if (t.Inputs.Count == 1)
+                {
+                    // If the tool has exactly one input parameter, use that parameter name
+                    var parameterName = t.Inputs.Keys.First();
+                    return new Dictionary<string, object> { [parameterName] = arguments! };
+                }
+                else if (t.Inputs.Count == 0)
+                {
+                    // Tool has no inputs, return empty dictionary
+                    return new Dictionary<string, object>();
+                }
+            }
+            
+            // For managed agents or tools with multiple inputs, use default mapping
+            if (tool != null)
+            {
+                var defaultArgName = GetDefaultArgumentName(tool.Name);
+                return new Dictionary<string, object> { [defaultArgName] = arguments! };
+            }
+            
+            // Default fallback - don't wrap in any key, let the tool handle it
+            return new Dictionary<string, object>();
+        }
+
+        /// <summary>
+        /// Gets the default argument name for a tool
+        /// </summary>
+        /// <param name="toolName">The tool name</param>
+        /// <returns>The default argument name</returns>
+        private string GetDefaultArgumentName(string toolName)
+        {
+            return toolName switch
+            {
+                "final_answer" => "answer",
+                "search" => "query",
+                "calculator" => "expression",
+                _ => "input"
             };
         }
 

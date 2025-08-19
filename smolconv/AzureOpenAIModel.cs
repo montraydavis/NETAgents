@@ -7,6 +7,7 @@ using ChatMessage = SmolConv.Models.ChatMessage;
 using System.ClientModel;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
 
 namespace SmolConv.Inference
 {
@@ -61,6 +62,7 @@ namespace SmolConv.Inference
                 var cachedResponse = LoadFromCache(cacheFilePath);
                 if (cachedResponse != null)
                 {
+                    Debug.WriteLine($"Loaded from cache: {cacheFilePath}");
                     return cachedResponse;
                 }
 
