@@ -64,7 +64,7 @@ public class DomainQueryService : BaseQueryService
                 string jsonContent = await File.ReadAllTextAsync(cacheFile, cancellationToken);
                 ProcessedFileEntry? entry = JsonSerializer.Deserialize<ProcessedFileEntry>(jsonContent);
                 
-                if (entry?.LevelData.TryGetValue(ProcessingLevel.DomainKeywords, out ProcessedLevelData? domainData) == true && domainData.IsSuccess)
+                if (entry?.LevelData.TryGetValue(JobProcessingLevel.DomainKeywords, out ProcessedLevelData? domainData) == true && domainData.IsSuccess)
                 {
                     List<DomainResult> domains = await ExtractDomainsAsync(entry.FilePath, domainData.Content);
                     allDomains.AddRange(domains);

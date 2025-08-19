@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
+using NETAgents.Models.Processing;
 using NETAgents.Tools.Processing.Models;
 using NETAgents.Tools.Processing.Models.Ast;
 using SmolConv.Inference;
@@ -15,6 +16,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
     private readonly ProcessingOptions _options;
     private Model? _model;
     private readonly object _modelLock = new object();
+    private volatile bool _disposed;
 
     public MultiLevelFileProcessorService(ILogger<MultiLevelFileProcessorService> logger, ProcessingOptions options)
     {
@@ -24,11 +26,15 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
 
     private Model GetOrCreateModel()
     {
+        ThrowIfDisposed();
+        
         if (_model != null)
             return _model;
 
         lock (_modelLock)
         {
+            ThrowIfDisposed();
+            
             if (_model != null)
                 return _model;
 
@@ -46,8 +52,16 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
         }
     }
 
-    public async Task<ProcessingResult> ProcessLevelAsync(MultiLevelProcessingJob job, ProcessingLevel level, CancellationToken cancellationToken = default)
+    private void ThrowIfDisposed()
     {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(MultiLevelFileProcessorService));
+    }
+
+    public async Task<JobProcessingResult> ProcessLevelAsync(MultiLevelProcessingJob job, JobProcessingLevel level, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        
         _logger.LogInformation("Processing {Level} for file: {FilePath}", level, job.FilePath);
         
         Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -56,8 +70,8 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
         {
             string prompt = level switch
             {
-                ProcessingLevel.Ast => CreateAstProcessingPrompt(job.Content),
-                ProcessingLevel.DomainKeywords => CreateDomainKeywordsPrompt(job.Content),
+                JobProcessingLevel.Ast => CreateAstProcessingPrompt(job.Content),
+                JobProcessingLevel.DomainKeywords => CreateDomainKeywordsPrompt(job.Content),
                 _ => throw new ArgumentException($"Unsupported processing level: {level}")
             };
             
@@ -69,18 +83,18 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
                 new List<ChatMessage> { new ChatMessage(MessageRole.User, prompt) },
                 null,
                 timeoutCts.Token
-            );
+            ).ConfigureAwait(false);
             
             stopwatch.Stop();
             
             string content = result.Content?.ToString() ?? string.Empty;
             
             // Validate result based on level
-            if (level == ProcessingLevel.DomainKeywords)
+            if (level == JobProcessingLevel.DomainKeywords)
             {
                 ValidateDomainKeywordsJson(content);
             }
-            else if (level == ProcessingLevel.Ast)
+            else if (level == JobProcessingLevel.Ast)
             {
                 ValidateAstJson(content);
             }
@@ -107,7 +121,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
                 level, job.FilePath, stopwatch.ElapsedMilliseconds
             );
             
-            return new ProcessingResult
+            return new JobProcessingResult
             {
                 IsSuccess = true,
                 Content = content,
@@ -126,7 +140,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
             string errorMessage = $"{level} processing timed out after {_options.ProcessingTimeout.TotalMilliseconds}ms";
             _logger.LogError(errorMessage + " for {FilePath}", job.FilePath);
             
-            return new ProcessingResult
+            return new JobProcessingResult
             {
                 IsSuccess = false,
                 ErrorMessage = errorMessage,
@@ -138,7 +152,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
             stopwatch.Stop();
             _logger.LogError(ex, "Error processing {Level} for file {FilePath}", level, job.FilePath);
             
-            return new ProcessingResult
+            return new JobProcessingResult
             {
                 IsSuccess = false,
                 ErrorMessage = ex.Message,
@@ -499,6 +513,31 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
                     }
                 }
             }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        
+        _disposed = true;
+        
+        try
+        {
+            lock (_modelLock)
+            {
+                if (_model is IDisposable disposableModel)
+                {
+                    disposableModel.Dispose();
+                }
+                _model = null;
+            }
+            
+            _logger.LogDebug("MultiLevelFileProcessorService disposed successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error disposing MultiLevelFileProcessorService");
         }
     }
 }

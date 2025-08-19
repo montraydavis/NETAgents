@@ -86,7 +86,7 @@ public class AstQueryService : BaseQueryService
                 }
                 
                 // Skip files that don't have AST data or failed processing
-                if (!entry.LevelData.TryGetValue(ProcessingLevel.Ast, out ProcessedLevelData? astData) || !astData.IsSuccess)
+                if (!entry.LevelData.TryGetValue(JobProcessingLevel.Ast, out ProcessedLevelData? astData) || !astData.IsSuccess)
                 {
                     skippedFiles++;
                     continue;

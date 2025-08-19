@@ -1,30 +1,9 @@
 using System.Threading.Channels;
 using System.Collections.Concurrent;
 using NETAgents.Tools.Processing.Models;
+using NETAgents.Models.Processing;
 
 namespace NETAgents.Tools.Processing.Services;
-
-public interface IProcessingQueueService
-{
-    Task EnqueueJobAsync(FileProcessingJob job, CancellationToken cancellationToken = default);
-    Task<FileProcessingJob?> DequeueJobAsync(CancellationToken cancellationToken = default);
-    Task<int> GetQueueLengthAsync();
-    Task<IEnumerable<FileProcessingJob>> GetActiveJobsAsync();
-    void CompleteJob(FileProcessingJob job, bool success, string? result = null, string? errorMessage = null);
-    bool ShouldRetryJob(FileProcessingJob job, string errorMessage);
-    Task EnqueueRetryJobAsync(FileProcessingJob job, CancellationToken cancellationToken = default);
-    Task<QueueStatistics> GetStatisticsAsync();
-    Task CleanupStaleJobsAsync(CancellationToken cancellationToken = default);
-    void CompleteChannel();
-}
-
-public record QueueStatistics(
-    int PendingJobs,
-    int ActiveJobs,
-    int CompletedJobs,
-    int FailedJobs,
-    TimeSpan? AverageProcessingTime
-);
 
 public class ProcessingQueueService : IProcessingQueueService, IDisposable
 {
@@ -33,7 +12,8 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
     private readonly ConcurrentDictionary<Guid, FileProcessingJob> _activeJobs;
     private readonly ConcurrentDictionary<Guid, FileProcessingJob> _completedJobs;
     private readonly ProcessingOptions _options;
-    private readonly Timer _cleanupTimer;
+    private Timer? _cleanupTimer;
+    private readonly CancellationTokenSource _cleanupCancellationTokenSource = new();
     private readonly object _statsLock = new();
     private volatile bool _disposed;
 
@@ -56,9 +36,31 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         
         _queue = Channel.CreateBounded<FileProcessingJob>(channelOptions);
         
-        // Setup cleanup timer for stale jobs
-        _cleanupTimer = new Timer(async _ => await CleanupStaleJobsAsync(), 
-            null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        // Setup cleanup timer with proper async handling
+        _cleanupTimer = new Timer(CleanupTimerCallback, null, _options.CollectionCleanupInterval, _options.CollectionCleanupInterval);
+    }
+
+    private void CleanupTimerCallback(object? state)
+    {
+        if (_disposed || _cleanupCancellationTokenSource.Token.IsCancellationRequested)
+            return;
+
+        // Fire-and-forget pattern with proper exception handling
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await CleanupStaleJobsAsync(_cleanupCancellationTokenSource.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected during shutdown
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in cleanup timer callback");
+            }
+        }, _cleanupCancellationTokenSource.Token);
     }
 
     public async Task EnqueueJobAsync(FileProcessingJob job, CancellationToken cancellationToken = default)
@@ -75,7 +77,7 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30)); // 30 second timeout
             
-            await _queue.Writer.WriteAsync(job, timeoutCts.Token);
+            await _queue.Writer.WriteAsync(job, timeoutCts.Token).ConfigureAwait(false);
             _logger.LogDebug("Successfully enqueued job {JobId} for file {FilePath}", job.Id, job.FilePath);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -111,11 +113,11 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
             timeoutCts.CancelAfter(_options.DequeueTimeout);
             
             // Try to read a single job instead of all jobs
-            if (await _queue.Reader.WaitToReadAsync(timeoutCts.Token))
+            if (await _queue.Reader.WaitToReadAsync(timeoutCts.Token).ConfigureAwait(false))
             {
                 if (_queue.Reader.TryRead(out FileProcessingJob? job))
                 {
-                    job.Status = ProcessingStatus.Processing;
+                    job.Status = JobProcessingStatus.Processing;
                     job.StartedAt = DateTime.UtcNow;
                     
                     if (!_activeJobs.TryAdd(job.Id, job))
@@ -175,22 +177,45 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         
         if (success)
         {
-            job.Status = ProcessingStatus.Completed;
+            job.Status = JobProcessingStatus.Completed;
             job.Result = result;
             _logger.LogInformation("Job {JobId} completed successfully in {Duration:F2}s", 
                 job.Id, job.ProcessingDuration?.TotalSeconds ?? 0);
         }
         else
         {
-            job.Status = ProcessingStatus.Failed;
+            job.Status = JobProcessingStatus.Failed;
             job.ErrorMessage = errorMessage;
             _logger.LogError("Job {JobId} failed: {Error}", job.Id, errorMessage);
         }
         
-        // Move from active to completed
+        // Move from active to completed with bounded collection management
         if (_activeJobs.TryRemove(job.Id, out _))
         {
-            _completedJobs.TryAdd(job.Id, job);
+            AddToCompletedJobsWithEviction(job);
+        }
+    }
+
+    private void AddToCompletedJobsWithEviction(FileProcessingJob job)
+    {
+        // Add the job to completed jobs
+        _completedJobs.TryAdd(job.Id, job);
+        
+        // Check if we need to evict old entries
+        if (_completedJobs.Count > _options.MaxCompletedJobs)
+        {
+            // Remove oldest entries (LRU eviction based on completion time)
+            var oldestJobs = _completedJobs.Values
+                .OrderBy(j => j.CompletedAt)
+                .Take(_completedJobs.Count - _options.MaxCompletedJobs)
+                .ToList();
+            
+            foreach (var oldJob in oldestJobs)
+            {
+                _completedJobs.TryRemove(oldJob.Id, out _);
+            }
+            
+            _logger.LogDebug("Evicted {Count} old completed jobs to maintain collection size limit", oldestJobs.Count);
         }
     }
 
@@ -205,7 +230,7 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         
         if (job.RetryCount >= _options.MaxRetryAttempts)
         {
-            job.Status = ProcessingStatus.Failed;
+            job.Status = JobProcessingStatus.Failed;
             job.CompletedAt = DateTime.UtcNow;
             if (job.StartedAt.HasValue)
             {
@@ -223,7 +248,7 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
             return false;
         }
         
-        job.Status = ProcessingStatus.Retrying;
+        job.Status = JobProcessingStatus.Retrying;
         _logger.LogWarning("Job {JobId} will be retried (attempt {RetryCount}/{MaxRetries})", 
             job.Id, job.RetryCount, _options.MaxRetryAttempts);
         return true;
@@ -236,7 +261,7 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         if (job == null) throw new ArgumentNullException(nameof(job));
         
         // Reset job state for retry
-        job.Status = ProcessingStatus.Pending;
+        job.Status = JobProcessingStatus.Pending;
         job.StartedAt = null;
         job.CompletedAt = null;
         job.ProcessingDuration = null;
@@ -252,9 +277,9 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
             job.Id, delay.TotalSeconds);
         
         // Wait before re-queuing
-        await Task.Delay(delay, cancellationToken);
+        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         
-        await EnqueueJobAsync(job, cancellationToken);
+        await EnqueueJobAsync(job, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<QueueStatistics> GetStatisticsAsync()
@@ -266,11 +291,11 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         
         lock (_statsLock)
         {
-            int completedJobs = _completedJobs.Values.Count(j => j.Status == ProcessingStatus.Completed);
-            int failedJobs = _completedJobs.Values.Count(j => j.Status == ProcessingStatus.Failed);
+            int completedJobs = _completedJobs.Values.Count(j => j.Status == JobProcessingStatus.Completed);
+            int failedJobs = _completedJobs.Values.Count(j => j.Status == JobProcessingStatus.Failed);
             
             List<FileProcessingJob> completedWithDuration = _completedJobs.Values
-                .Where(j => j.Status == ProcessingStatus.Completed && j.ProcessingDuration.HasValue)
+                .Where(j => j.Status == JobProcessingStatus.Completed && j.ProcessingDuration.HasValue)
                 .ToList();
             
             TimeSpan? averageProcessingTime = null;
@@ -290,6 +315,7 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         
         try
         {
+            // Cleanup stale active jobs
             DateTime staleThreshold = DateTime.UtcNow.Subtract(_options.ProcessingTimeout * 2);
             List<FileProcessingJob> staleJobs = _activeJobs.Values
                 .Where(j => j.StartedAt.HasValue && j.StartedAt.Value < staleThreshold)
@@ -303,24 +329,31 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
                 CompleteJob(staleJob, false, errorMessage: "Job became stale and was cleaned up");
             }
             
-            // Cleanup old completed jobs (keep last 1000)
-            lock (_statsLock)
+            // Monitor active jobs collection size
+            if (_activeJobs.Count > _options.MaxActiveJobs)
             {
-                if (_completedJobs.Count > 1000)
+                _logger.LogWarning("Active jobs collection size ({Current}) exceeds limit ({Limit})", 
+                    _activeJobs.Count, _options.MaxActiveJobs);
+                
+                // Force cleanup of oldest active jobs if severely over limit
+                if (_activeJobs.Count > _options.MaxActiveJobs * 2)
                 {
-                    List<FileProcessingJob> oldJobs = _completedJobs.Values
-                        .OrderBy(j => j.CompletedAt)
-                        .Take(_completedJobs.Count - 1000)
+                    var oldestActiveJobs = _activeJobs.Values
+                        .OrderBy(j => j.StartedAt)
+                        .Take(_activeJobs.Count - _options.MaxActiveJobs)
                         .ToList();
                     
-                    foreach (FileProcessingJob oldJob in oldJobs)
+                    foreach (var oldJob in oldestActiveJobs)
                     {
-                        _completedJobs.TryRemove(oldJob.Id, out _);
+                        _logger.LogWarning("Force cleaning up old active job {JobId} due to collection size limit", oldJob.Id);
+                        CompleteJob(oldJob, false, errorMessage: "Job cleaned up due to collection size limit");
                     }
-                    
-                    _logger.LogDebug("Cleaned up {Count} old completed jobs", oldJobs.Count);
                 }
             }
+            
+            // Log collection statistics
+            _logger.LogDebug("Collection cleanup completed - Active: {ActiveCount}, Completed: {CompletedCount}", 
+                _activeJobs.Count, _completedJobs.Count);
         }
         catch (Exception ex)
         {
@@ -352,7 +385,16 @@ public class ProcessingQueueService : IProcessingQueueService, IDisposable
         
         try
         {
+            // Stop timer before disposal to prevent new callbacks
+            _cleanupTimer?.Change(Timeout.Infinite, Timeout.Infinite);
             _cleanupTimer?.Dispose();
+            _cleanupTimer = null;
+            
+            // Cancel and dispose cancellation token source
+            _cleanupCancellationTokenSource.Cancel();
+            _cleanupCancellationTokenSource.Dispose();
+            
+            // Complete the channel
             _queue.Writer.TryComplete();
         }
         catch (Exception ex)

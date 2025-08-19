@@ -2,13 +2,11 @@ using System.Diagnostics;
 using SmolConv.Inference;
 using SmolConv.Models;
 using NETAgents.Tools.Processing.Models;
+using NETAgents.Models.Processing;
 
 namespace NETAgents.Tools.Processing.Services;
 
-public interface IFileProcessorService
-{
-    Task<string> ProcessFileAsync(FileProcessingJob job, CancellationToken cancellationToken = default);
-}
+
 
 public class FileProcessorService : IFileProcessorService
 {

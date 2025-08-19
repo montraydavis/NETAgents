@@ -1,8 +1,9 @@
+using NETAgents.Models.Processing;
 using NETAgents.Tools.Processing.Models;
 
 namespace NETAgents.Tools.Processing.Services;
 
-public interface IFileDiscoveryService
+public interface IFileDiscoveryService : IDisposable
 {
     Task<IEnumerable<FileProcessingJob>> DiscoverFilesAsync(CancellationToken cancellationToken = default);
     Task StartFileWatcherAsync(CancellationToken cancellationToken = default);
@@ -16,6 +17,12 @@ public class FileDiscoveryService : IFileDiscoveryService
     private readonly IProcessingQueueService _queueService;
     private FileSystemWatcher? _fileWatcher;
     private readonly HashSet<string> _processedFiles;
+    private readonly object _processedFilesLock = new();
+    
+    // Store event handler references for proper removal
+    private FileSystemEventHandler? _fileCreatedHandler;
+    private FileSystemEventHandler? _fileChangedHandler;
+    private volatile bool _disposed;
 
     public FileDiscoveryService(
         ILogger<FileDiscoveryService> logger, 
@@ -44,7 +51,7 @@ public class FileDiscoveryService : IFileDiscoveryService
             string[] files = Directory.GetFiles(_options.InputDirectory, _options.FilePattern);
             _logger.LogInformation("Found {Count} files matching pattern", files.Length);
             
-            List<string> filteredFiles = files.Where(f => !_processedFiles.Contains(f)).ToList();
+            List<string> filteredFiles = files.Where(f => !IsFileProcessed(f)).ToList();
             _logger.LogInformation("After filtering processed files: {Count} files", filteredFiles.Count);
             
             List<FileProcessingJob> jobs = filteredFiles.Select(CreateJobFromFile).ToList();
@@ -82,18 +89,46 @@ public class FileDiscoveryService : IFileDiscoveryService
             };
 
             _logger.LogInformation("Setting up file watcher event handlers");
-            // Use proper async event handlers with cancellation support
-            _fileWatcher.Created += (sender, e) => 
+            // Store event handler references for proper removal
+            _fileCreatedHandler = (sender, e) => 
             {
+                if (_disposed) return;
+                
                 _logger.LogDebug("File created event triggered: {FilePath}", e.FullPath);
-                _ = Task.Run(async () => await OnFileCreated(e, cancellationToken), cancellationToken);
+                _ = Task.Run(async () => 
+                {
+                    try
+                    {
+                        await OnFileCreated(e, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error in file created event handler for {FilePath}", e.FullPath);
+                    }
+                }, cancellationToken);
             };
             
-            _fileWatcher.Changed += (sender, e) => 
+            _fileChangedHandler = (sender, e) => 
             {
+                if (_disposed) return;
+                
                 _logger.LogDebug("File changed event triggered: {FilePath}", e.FullPath);
-                _ = Task.Run(async () => await OnFileChanged(e, cancellationToken), cancellationToken);
+                _ = Task.Run(async () => 
+                {
+                    try
+                    {
+                        await OnFileChanged(e, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error in file changed event handler for {FilePath}", e.FullPath);
+                    }
+                }, cancellationToken);
             };
+            
+            // Subscribe to events
+            _fileWatcher.Created += _fileCreatedHandler;
+            _fileWatcher.Changed += _fileChangedHandler;
 
             _logger.LogInformation("File watcher started for {Directory} with pattern {Pattern}", 
                 _options.InputDirectory, _options.FilePattern);
@@ -109,16 +144,35 @@ public class FileDiscoveryService : IFileDiscoveryService
 
     public Task StopFileWatcherAsync()
     {
+        if (_disposed) return Task.CompletedTask;
+        
+        _disposed = true;
+        
         if (_fileWatcher != null)
         {
             try
             {
+                // Stop raising events first
                 _fileWatcher.EnableRaisingEvents = false;
-                _fileWatcher.Created -= null; // Remove event handlers
-                _fileWatcher.Changed -= null; // Remove event handlers
+                
+                // Remove event handlers using stored references
+                if (_fileCreatedHandler != null)
+                {
+                    _fileWatcher.Created -= _fileCreatedHandler;
+                    _fileCreatedHandler = null;
+                }
+                
+                if (_fileChangedHandler != null)
+                {
+                    _fileWatcher.Changed -= _fileChangedHandler;
+                    _fileChangedHandler = null;
+                }
+                
+                // Dispose the FileSystemWatcher
                 _fileWatcher.Dispose();
                 _fileWatcher = null;
-                _logger.LogInformation("File watcher stopped");
+                
+                _logger.LogInformation("File watcher stopped and event handlers removed");
             }
             catch (Exception ex)
             {
@@ -129,18 +183,48 @@ public class FileDiscoveryService : IFileDiscoveryService
         return Task.CompletedTask;
     }
 
+    private void AddProcessedFileWithEviction(string filePath)
+    {
+        lock (_processedFilesLock)
+        {
+            _processedFiles.Add(filePath);
+            
+            // Check if we need to evict old entries
+            if (_processedFiles.Count > _options.MaxProcessedFiles)
+            {
+                // Remove oldest entries (simple approach - remove first entries)
+                // In a more sophisticated implementation, we could track timestamps
+                var filesToRemove = _processedFiles.Take(_processedFiles.Count - _options.MaxProcessedFiles).ToList();
+                foreach (var file in filesToRemove)
+                {
+                    _processedFiles.Remove(file);
+                }
+                
+                _logger.LogDebug("Evicted {Count} old processed files to maintain collection size limit", filesToRemove.Count);
+            }
+        }
+    }
+
+    private bool IsFileProcessed(string filePath)
+    {
+        lock (_processedFilesLock)
+        {
+            return _processedFiles.Contains(filePath);
+        }
+    }
+
     private async Task OnFileCreated(FileSystemEventArgs e, CancellationToken cancellationToken)
     {
         try
         {
             // Wait a bit to ensure file is fully written
-            await Task.Delay(1000, cancellationToken);
+            await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
             
-            if (File.Exists(e.FullPath) && !_processedFiles.Contains(e.FullPath))
+            if (File.Exists(e.FullPath) && !IsFileProcessed(e.FullPath))
             {
                 FileProcessingJob job = CreateJobFromFile(e.FullPath);
-                await _queueService.EnqueueJobAsync(job, cancellationToken);
-                _processedFiles.Add(e.FullPath);
+                await _queueService.EnqueueJobAsync(job, cancellationToken).ConfigureAwait(false);
+                AddProcessedFileWithEviction(e.FullPath);
                 
                 _logger.LogInformation("New file detected and queued: {FilePath}", e.FullPath);
             }
@@ -156,13 +240,13 @@ public class FileDiscoveryService : IFileDiscoveryService
         try
         {
             // Wait a bit to ensure file is fully written
-            await Task.Delay(1000, cancellationToken);
+            await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
             
-            if (File.Exists(e.FullPath) && !_processedFiles.Contains(e.FullPath))
+            if (File.Exists(e.FullPath) && !IsFileProcessed(e.FullPath))
             {
                 FileProcessingJob job = CreateJobFromFile(e.FullPath);
-                await _queueService.EnqueueJobAsync(job, cancellationToken);
-                _processedFiles.Add(e.FullPath);
+                await _queueService.EnqueueJobAsync(job, cancellationToken).ConfigureAwait(false);
+                AddProcessedFileWithEviction(e.FullPath);
                 
                 _logger.LogInformation("Modified file detected and queued: {FilePath}", e.FullPath);
             }
@@ -201,6 +285,20 @@ public class FileDiscoveryService : IFileDiscoveryService
         {
             _logger.LogError(ex, "Error reading file {FilePath}", filePath);
             throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        
+        try
+        {
+            StopFileWatcherAsync().Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during FileDiscoveryService disposal");
         }
     }
 }

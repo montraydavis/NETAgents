@@ -3,6 +3,7 @@ using System.Text.Json;
 using NETAgents.Tools.Processing.Models;
 using NETAgents.Tools.Processing.Services;
 using NETAgents.Tools.Processing.Cache;
+using NETAgents.Models.Processing;
 
 namespace NETAgents.Tools.Processing;
 
@@ -16,6 +17,7 @@ public class CachedMultiLevelWorker : BackgroundService
     private readonly ICacheService _cacheService;
     private readonly List<Task> _processingTasks;
     private readonly CancellationTokenSource _processingCts;
+    private volatile bool _disposed;
 
     public CachedMultiLevelWorker(
         ILogger<CachedMultiLevelWorker> logger,
@@ -41,9 +43,9 @@ public class CachedMultiLevelWorker : BackgroundService
 
         try
         {
-            await StartFileDiscoveryAsync(stoppingToken);
-            Task monitoringTask = Task.Run(async () => await RunMonitoringLoopAsync(stoppingToken), stoppingToken);
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            await StartFileDiscoveryAsync(stoppingToken).ConfigureAwait(false);
+            Task monitoringTask = Task.Run(async () => await RunMonitoringLoopAsync(stoppingToken).ConfigureAwait(false), stoppingToken);
+            await Task.Delay(Timeout.Infinite, stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -56,7 +58,7 @@ public class CachedMultiLevelWorker : BackgroundService
         }
         finally
         {
-            await CleanupAsync();
+            await CleanupAsync().ConfigureAwait(false);
         }
     }
 
@@ -64,8 +66,8 @@ public class CachedMultiLevelWorker : BackgroundService
     {
         _logger.LogInformation("Starting file discovery service with cache checking");
 
-        IEnumerable<FileProcessingJob> initialFiles = await _fileDiscoveryService.DiscoverFilesAsync(stoppingToken);
-        await StartProcessingWorkersAsync(stoppingToken);
+        IEnumerable<FileProcessingJob> initialFiles = await _fileDiscoveryService.DiscoverFilesAsync(stoppingToken).ConfigureAwait(false);
+        await StartProcessingWorkersAsync(stoppingToken).ConfigureAwait(false);
 
         int newFilesCount = 0;
         int cachedFilesCount = 0;
@@ -75,10 +77,10 @@ public class CachedMultiLevelWorker : BackgroundService
             try
             {
                 // Calculate current file hash
-                string currentHash = await CalculateFileHashAsync(file.FilePath);
+                string currentHash = await CalculateFileHashAsync(file.FilePath).ConfigureAwait(false);
 
                 // Check if file is already processed and up-to-date
-                if (await _cacheService.IsFileProcessedAsync(file.FilePath, currentHash, stoppingToken))
+                if (await _cacheService.IsFileProcessedAsync(file.FilePath, currentHash, stoppingToken).ConfigureAwait(false))
                 {
                     cachedFilesCount++;
                     _logger.LogDebug("Skipping already processed file: {FilePath}", file.FilePath);
@@ -87,7 +89,7 @@ public class CachedMultiLevelWorker : BackgroundService
 
                 // File needs processing
                 MultiLevelProcessingJob multiLevelJob = ConvertToMultiLevelJob(file);
-                await _queueService.EnqueueJobAsync(multiLevelJob, stoppingToken);
+                await _queueService.EnqueueJobAsync(multiLevelJob, stoppingToken).ConfigureAwait(false);
                 newFilesCount++;
             }
             catch (Exception ex)
@@ -95,7 +97,7 @@ public class CachedMultiLevelWorker : BackgroundService
                 _logger.LogError(ex, "Error checking cache for file {FilePath}", file.FilePath);
                 // Fallback to processing the file
                 MultiLevelProcessingJob multiLevelJob = ConvertToMultiLevelJob(file);
-                await _queueService.EnqueueJobAsync(multiLevelJob, stoppingToken);
+                await _queueService.EnqueueJobAsync(multiLevelJob, stoppingToken).ConfigureAwait(false);
                 newFilesCount++;
             }
         }
@@ -103,7 +105,7 @@ public class CachedMultiLevelWorker : BackgroundService
         _logger.LogInformation("Discovery complete - New files to process: {NewFiles}, Cached files skipped: {CachedFiles}",
             newFilesCount, cachedFilesCount);
 
-        await _fileDiscoveryService.StartFileWatcherAsync(stoppingToken);
+        await _fileDiscoveryService.StartFileWatcherAsync(stoppingToken).ConfigureAwait(false);
     }
 
     private static MultiLevelProcessingJob ConvertToMultiLevelJob(FileProcessingJob originalJob)
@@ -115,10 +117,10 @@ public class CachedMultiLevelWorker : BackgroundService
             Content = originalJob.Content,
             Status = originalJob.Status,
             CreatedAt = originalJob.CreatedAt,
-            RequiredLevels = new List<ProcessingLevel>
+            RequiredLevels = new List<JobProcessingLevel>
             {
-                ProcessingLevel.Ast,
-                ProcessingLevel.DomainKeywords
+                JobProcessingLevel.Ast,
+                JobProcessingLevel.DomainKeywords
             }
         };
     }
@@ -130,7 +132,7 @@ public class CachedMultiLevelWorker : BackgroundService
         for (int i = 0; i < _options.MaxConcurrentProcessing; i++)
         {
             int workerId = i;
-            Task workerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
+            Task workerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken).ConfigureAwait(false), stoppingToken);
             _processingTasks.Add(workerTask);
         }
 
@@ -141,11 +143,15 @@ public class CachedMultiLevelWorker : BackgroundService
     {
         _logger.LogInformation("Cached multi-level worker {WorkerId} started", workerId);
 
-        while (!stoppingToken.IsCancellationRequested)
+        while (!stoppingToken.IsCancellationRequested && !_disposed)
         {
             try
             {
-                FileProcessingJob? job = await _queueService.DequeueJobAsync(stoppingToken);
+                // Use a combined cancellation token that includes disposal state
+                using CancellationTokenSource combinedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    stoppingToken, _processingCts.Token);
+                
+                FileProcessingJob? job = await _queueService.DequeueJobAsync(combinedCts.Token).ConfigureAwait(false);
 
                 if (job is not MultiLevelProcessingJob multiLevelJob)
                 {
@@ -155,46 +161,85 @@ public class CachedMultiLevelWorker : BackgroundService
                     }
                     else
                     {
-                        await Task.Delay(2000, stoppingToken);
+                        // No jobs available, wait with shorter interval and check cancellation more frequently
+                        await Task.Delay(2000, combinedCts.Token).ConfigureAwait(false);
                         continue;
                     }
+                }
+
+                if (combinedCts.Token.IsCancellationRequested)
+                {
+                    _logger.LogDebug("Worker {WorkerId} cancellation requested before processing job {JobId}", workerId, multiLevelJob.Id);
+                    break;
                 }
 
                 _logger.LogInformation("Worker {WorkerId} processing cached multi-level job {JobId} for file {FilePath}",
                     workerId, multiLevelJob.Id, multiLevelJob.FilePath);
 
-                await ProcessCachedMultiLevelJobAsync(multiLevelJob, workerId, stoppingToken);
+                await ProcessCachedMultiLevelJobAsync(multiLevelJob, workerId, combinedCts.Token).ConfigureAwait(false);
+                
+                // Check cancellation after each job
+                if (combinedCts.Token.IsCancellationRequested)
+                {
+                    _logger.LogDebug("Worker {WorkerId} cancellation requested after processing job {JobId}", workerId, multiLevelJob.Id);
+                    break;
+                }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                _logger.LogInformation("Worker {WorkerId} stopped due to service shutdown", workerId);
+                break;
+            }
+            catch (OperationCanceledException) when (_processingCts.Token.IsCancellationRequested)
+            {
+                _logger.LogInformation("Worker {WorkerId} stopped due to processing cancellation", workerId);
+                break;
+            }
+            catch (ObjectDisposedException) when (_disposed)
+            {
+                _logger.LogInformation("Worker {WorkerId} stopped due to service disposal", workerId);
                 break;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error in cached multi-level worker {WorkerId}", workerId);
-                await Task.Delay(5000, stoppingToken);
+                
+                // Implement exponential backoff for error recovery
+                int backoffMs = Math.Min(5000, 1000 * (int)Math.Pow(2, Math.Min(3, 1))); // Cap at 5s, start at 2s
+                
+                try
+                {
+                    await Task.Delay(backoffMs, stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogDebug("Worker {WorkerId} error recovery cancelled", workerId);
+                    break;
+                }
             }
         }
+        
+        _logger.LogInformation("Cached multi-level worker {WorkerId} ended", workerId);
     }
 
     private async Task ProcessCachedMultiLevelJobAsync(MultiLevelProcessingJob job, int workerId, CancellationToken stoppingToken)
     {
         DateTime startTime = DateTime.UtcNow;
         job.StartedAt = startTime;
-        job.Status = ProcessingStatus.Processing;
+        job.Status = JobProcessingStatus.Processing;
 
         try
         {
             // Check if we have partial results in cache
-            ProcessedFileEntry? cachedEntry = await _cacheService.GetProcessedFileAsync(job.FilePath, stoppingToken);
+            ProcessedFileEntry? cachedEntry = await _cacheService.GetProcessedFileAsync(job.FilePath, stoppingToken).ConfigureAwait(false);
             if (cachedEntry != null)
             {
                 // Load any successfully processed levels from cache
-                foreach (ProcessingLevel level in job.RequiredLevels)
+                foreach (JobProcessingLevel level in job.RequiredLevels)
                 {
                     if (cachedEntry.LevelData.TryGetValue(level, out ProcessedLevelData? cachedLevelData) && cachedLevelData.IsSuccess)
                     {
-                        job.Results[level] = new ProcessingResult
+                        job.Results[level] = new JobProcessingResult
                         {
                             IsSuccess = true,
                             Content = cachedLevelData.Content,
@@ -208,7 +253,7 @@ public class CachedMultiLevelWorker : BackgroundService
             }
 
             // Process only the levels that aren't cached or failed
-            foreach (ProcessingLevel level in job.RequiredLevels)
+            foreach (JobProcessingLevel level in job.RequiredLevels)
             {
                 if (job.Results.ContainsKey(level) && job.Results[level].IsSuccess)
                 {
@@ -219,13 +264,13 @@ public class CachedMultiLevelWorker : BackgroundService
                 _logger.LogInformation("Worker {WorkerId} processing {Level} for job {JobId}", workerId, level, job.Id);
 
                 job.CurrentLevel = level;
-                ProcessingResult result = await _processorService.ProcessLevelAsync(job, level, stoppingToken);
+                JobProcessingResult result = await _processorService.ProcessLevelAsync(job, level, stoppingToken).ConfigureAwait(false);
                 job.Results[level] = result;
 
                 if (!result.IsSuccess)
                 {
                     _logger.LogError("Level {Level} failed for job {JobId}: {Error}", level, job.Id, result.ErrorMessage);
-                    await HandleJobFailure(job, $"Level {level} failed: {result.ErrorMessage}", stoppingToken);
+                    await HandleJobFailure(job, $"Level {level} failed: {result.ErrorMessage}", stoppingToken).ConfigureAwait(false);
                     return;
                 }
 
@@ -237,7 +282,7 @@ public class CachedMultiLevelWorker : BackgroundService
             if (job.IsMultiLevelComplete)
             {
                 // Final validation before caching - ensure all results contain valid JSON
-                foreach (ProcessingResult result in job.Results.Values)
+                foreach (JobProcessingResult result in job.Results.Values)
                 {
                     if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.Content))
                     {
@@ -255,7 +300,7 @@ public class CachedMultiLevelWorker : BackgroundService
                 }
                 
                 // Store in cache
-                await _cacheService.StoreProcessedFileAsync(job, stoppingToken);
+                await _cacheService.StoreProcessedFileAsync(job, stoppingToken).ConfigureAwait(false);
 
                 string aggregatedResult = AggregateResults(job);
                 _queueService.CompleteJob(job, true, aggregatedResult);
@@ -278,7 +323,7 @@ public class CachedMultiLevelWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing cached multi-level job {JobId}", job.Id);
-            await HandleJobFailure(job, ex.Message, stoppingToken);
+            await HandleJobFailure(job, ex.Message, stoppingToken).ConfigureAwait(false);
         }
     }
 
@@ -319,7 +364,7 @@ public class CachedMultiLevelWorker : BackgroundService
                     job.Results.Remove(job.CurrentLevel);
                 }
 
-                await _queueService.EnqueueRetryJobAsync(job, stoppingToken);
+                await _queueService.EnqueueRetryJobAsync(job, stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -344,13 +389,13 @@ public class CachedMultiLevelWorker : BackgroundService
                 //     queueStats.PendingJobs, queueStats.ActiveJobs, queueStats.CompletedJobs, queueStats.FailedJobs,
                 //     cacheStats.TotalFiles, cacheStats.ProcessedFiles);
 
-                await CheckAndRestartFailedWorkers(stoppingToken);
-                await _queueService.CleanupStaleJobsAsync(stoppingToken);
+                await CheckAndRestartFailedWorkers(stoppingToken).ConfigureAwait(false);
+                await _queueService.CleanupStaleJobsAsync(stoppingToken).ConfigureAwait(false);
 
                 // Note: Cache cleanup removed to prevent deadlocks
                 // Cache cleanup can be done via scheduled tasks or manual cleanup
 
-                await Task.Delay(_options.PollingInterval, stoppingToken);
+                await Task.Delay(_options.PollingInterval, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -359,22 +404,74 @@ public class CachedMultiLevelWorker : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in cached multi-level monitoring loop");
-                await Task.Delay(5000, stoppingToken);
+                await Task.Delay(5000, stoppingToken).ConfigureAwait(false);
             }
         }
     }
 
     private Task CheckAndRestartFailedWorkers(CancellationToken stoppingToken)
     {
-        List<Task> failedTasks = _processingTasks.Where(t => t.IsFaulted || t.IsCompleted).ToList();
-
-        foreach (Task failedTask in failedTasks)
+        if (_disposed || stoppingToken.IsCancellationRequested)
+            return Task.CompletedTask;
+            
+        try
         {
-            _processingTasks.Remove(failedTask);
+            List<Task> failedTasks = _processingTasks.Where(t => t.IsFaulted || (t.IsCompleted && !t.IsCanceled)).ToList();
 
-            int workerId = _processingTasks.Count;
-            Task newWorkerTask = Task.Run(async () => await ProcessFilesAsync(workerId, stoppingToken), stoppingToken);
-            _processingTasks.Add(newWorkerTask);
+            foreach (Task failedTask in failedTasks)
+            {
+                // Log the failure reason
+                if (failedTask.IsFaulted && failedTask.Exception != null)
+                {
+                    _logger.LogError(failedTask.Exception.GetBaseException(), 
+                        "Processing worker task failed and will be restarted");
+                }
+                else if (failedTask.IsCompleted && !failedTask.IsCanceled)
+                {
+                    _logger.LogWarning("Processing worker task completed unexpectedly and will be restarted");
+                }
+
+                _processingTasks.Remove(failedTask);
+
+                // Only restart if we're not shutting down
+                if (!stoppingToken.IsCancellationRequested && !_disposed)
+                {
+                    int workerId = _processingTasks.Count;
+                    _logger.LogInformation("Restarting failed worker as worker {WorkerId}", workerId);
+                    
+                    Task newWorkerTask = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await ProcessFilesAsync(workerId, stoppingToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error in restarted worker {WorkerId}", workerId);
+                        }
+                    }, stoppingToken);
+                    
+                    _processingTasks.Add(newWorkerTask);
+                }
+            }
+            
+            // Log current worker health status
+            int activeWorkers = _processingTasks.Count(t => !t.IsCompleted);
+            int expectedWorkers = _options.MaxConcurrentProcessing;
+            
+            if (activeWorkers < expectedWorkers && !stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("Worker health check: {ActiveWorkers}/{ExpectedWorkers} workers active", 
+                    activeWorkers, expectedWorkers);
+            }
+            else if (activeWorkers == expectedWorkers)
+            {
+                _logger.LogDebug("Worker health check: All {ActiveWorkers} workers are healthy", activeWorkers);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during worker health check and restart");
         }
 
         return Task.CompletedTask;
@@ -386,7 +483,7 @@ public class CachedMultiLevelWorker : BackgroundService
         {
             using SHA256 sha256 = System.Security.Cryptography.SHA256.Create();
             using FileStream stream = File.OpenRead(filePath);
-            byte[] hash = await sha256.ComputeHashAsync(stream);
+            byte[] hash = await sha256.ComputeHashAsync(stream).ConfigureAwait(false);
             return Convert.ToBase64String(hash);
         }
         catch (Exception ex)
@@ -400,22 +497,60 @@ public class CachedMultiLevelWorker : BackgroundService
 
     private async Task CleanupAsync()
     {
+        if (_disposed) return;
+        
+        _logger.LogInformation("Starting graceful shutdown of CachedMultiLevelWorker");
+        
         try
         {
-            await _fileDiscoveryService.StopFileWatcherAsync();
+            // Phase 1: Stop file discovery (no new files will be queued)
+            _logger.LogDebug("Phase 1: Stopping file discovery service");
+            await _fileDiscoveryService.StopFileWatcherAsync().ConfigureAwait(false);
+            
+            // Phase 2: Complete the queue channel (no new jobs will be accepted)
+            _logger.LogDebug("Phase 2: Completing processing queue channel");
             _queueService.CompleteChannel();
+            
+            // Phase 3: Cancel processing tasks gracefully
+            _logger.LogDebug("Phase 3: Cancelling {TaskCount} processing tasks", _processingTasks.Count);
             _processingCts.Cancel();
 
+            // Phase 4: Wait for processing tasks to complete with timeout
             if (_processingTasks.Any())
             {
-                Task timeout = Task.Delay(TimeSpan.FromSeconds(30));
-                Task completedTask = await Task.WhenAny(Task.WhenAll(_processingTasks), timeout);
-
-                if (completedTask == timeout)
+                _logger.LogDebug("Phase 4: Waiting for processing tasks to complete (30s timeout)");
+                
+                using CancellationTokenSource timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                
+                try
                 {
-                    _processingCts.Cancel();
+                    await Task.WhenAll(_processingTasks).WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+                    _logger.LogInformation("All processing tasks completed gracefully");
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogWarning("Processing tasks did not complete within timeout, forcing cancellation");
+                    // Tasks may still be running but we'll proceed with disposal
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error waiting for processing tasks to complete");
                 }
             }
+            
+            // Phase 5: Log final statistics
+            try
+            {
+                var queueStats = await _queueService.GetStatisticsAsync();
+                _logger.LogInformation("Final queue statistics - Pending: {Pending}, Active: {Active}, Completed: {Completed}, Failed: {Failed}",
+                    queueStats.PendingJobs, queueStats.ActiveJobs, queueStats.CompletedJobs, queueStats.FailedJobs);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to retrieve final queue statistics");
+            }
+            
+            _logger.LogInformation("CachedMultiLevelWorker cleanup completed");
         }
         catch (Exception ex)
         {
@@ -425,15 +560,63 @@ public class CachedMultiLevelWorker : BackgroundService
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _processingCts.Cancel();
-        await base.StopAsync(cancellationToken);
+        _logger.LogInformation("CachedMultiLevelWorker stop requested");
+        
+        if (!_disposed)
+        {
+            _processingCts.Cancel();
+            
+            // Use a timeout for the base StopAsync to prevent hanging
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(45)); // Allow slightly more time than cleanup
+            
+            try
+            {
+                await base.StopAsync(timeoutCts.Token).ConfigureAwait(false);
+                _logger.LogInformation("CachedMultiLevelWorker stopped successfully");
+            }
+            catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested)
+            {
+                _logger.LogWarning("CachedMultiLevelWorker stop operation timed out");
+            }
+        }
     }
 
     public override void Dispose()
     {
-        _processingCts?.Dispose();
-        (_queueService as IDisposable)?.Dispose();
-        (_cacheService as IDisposable)?.Dispose();
-        base.Dispose();
+        if (_disposed) return;
+        
+        _disposed = true;
+        
+        try
+        {
+            _logger.LogDebug("Disposing CachedMultiLevelWorker services in dependency order");
+            
+            // Dispose services in reverse dependency order
+            // 1. Worker's own resources first
+            _processingCts?.Dispose();
+            
+            // 2. File discovery service (stops watching for new files)
+            _fileDiscoveryService?.Dispose();
+            
+            // 3. Queue service (stops accepting new jobs and cleans up queues)
+            _queueService?.Dispose();
+            
+            // 4. Processor service (disposes AI model resources)
+            _processorService?.Dispose();
+            
+            // 5. Cache service last (maintains data integrity)
+            _cacheService?.Dispose();
+            
+            _logger.LogDebug("CachedMultiLevelWorker disposal completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during CachedMultiLevelWorker disposal");
+        }
+        finally
+        {
+            base.Dispose();
+        }
     }
 }
