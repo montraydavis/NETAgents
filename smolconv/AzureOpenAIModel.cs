@@ -19,7 +19,7 @@ namespace SmolConv.Inference
         private readonly bool _useCache;
         private readonly string _cacheDirectory;
         private readonly string _cacheSalt;
-        private readonly IList<ChatMessage> _messageHistory;
+        private IList<ChatMessage> _messageHistory;
 
         public AzureOpenAIModel(string modelId, string endpoint, string apiKey, bool cache = true) : base(modelId: modelId)
         {
@@ -57,8 +57,7 @@ namespace SmolConv.Inference
             {
                 if(_messageHistory.Count > 6)
                 {
-                    _messageHistory.RemoveAt(0);
-                    _messageHistory.RemoveAt(0);
+                    _messageHistory = _messageHistory.Skip(2).ToList();
                 }
 
                 // Generate cache key
