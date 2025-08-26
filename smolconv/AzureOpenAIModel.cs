@@ -50,12 +50,22 @@ namespace SmolConv.Inference
             Directory.CreateDirectory(_cacheDirectory);
         }
 
+        public void AddToolResponseMessage(string toolCallId, string content)
+        {
+            var toolResponseMessage = new ChatMessage(
+                MessageRole.ToolResponse,
+                content,
+                content
+            );
+            _messageHistory.Add(toolResponseMessage);
+        }
+
         public override async Task<ChatMessage> GenerateAsync(List<ChatMessage> messages, ModelCompletionOptions? options = null,
-                                                       CancellationToken cancellationToken = default)
+                                               CancellationToken cancellationToken = default)
         {
             try
             {
-                if(_messageHistory.Count > 6)
+                if (_messageHistory.Count > 6)
                 {
                     _messageHistory = _messageHistory.Skip(2).ToList();
                 }
@@ -69,16 +79,12 @@ namespace SmolConv.Inference
                 if (_useCache && cachedResponse != null)
                 {
                     Debug.WriteLine($"Loaded from cache: {cacheFilePath}");
-                    foreach (ChatMessage message in messages)
-                    {
-                        _messageHistory.Add(message);
-                    }
-                    _messageHistory.Add(cachedResponse);
+                    // DON'T update _messageHistory here for cached responses
                     return cachedResponse;
                 }
 
-                // Convert smolagents messages to Azure OpenAI format
-                List<OpenAI.Chat.ChatMessage> azureMessages = ConvertToAzureOpenAIMessages((_messageHistory.Any() ? _messageHistory : messages).ToList());
+                // Use incoming messages (which include complete conversation flow from agent)
+                List<OpenAI.Chat.ChatMessage> azureMessages = ConvertToAzureOpenAIMessages(messages);
 
                 // Prepare completion options
                 ChatCompletionOptions completionOptions = new ChatCompletionOptions();
@@ -145,11 +151,8 @@ namespace SmolConv.Inference
                 // Save to cache
                 SaveToCache(cacheFilePath, response);
 
-                foreach (ChatMessage message in messages)
-                {
-                    _messageHistory.Add(message);
-                }
-                _messageHistory.Add(response);
+                // SIMPLIFIED: Don't maintain separate _messageHistory - let the agent handle conversation flow
+                // This prevents the infinite loop by not interfering with the agent's memory management
 
                 return response;
             }
@@ -417,10 +420,82 @@ namespace SmolConv.Inference
             return JsonSerializer.Serialize(message.Content);
         }
 
+        private List<OpenAI.Chat.ChatMessage> ConvertToOpenAIMessages(List<ChatMessage> messages)
+        {
+            List<OpenAI.Chat.ChatMessage> result = new List<OpenAI.Chat.ChatMessage>();
+
+            foreach (ChatMessage message in messages)
+            {
+                switch (message.Role)
+                {
+                    case MessageRole.System:
+                        result.Add(new SystemChatMessage(GetMessageContent(message)));
+                        break;
+
+                    case MessageRole.User:
+                        result.Add(new UserChatMessage(GetMessageContent(message)));
+                        break;
+
+                    case MessageRole.Assistant:
+                        AssistantChatMessage assistantMessage = new AssistantChatMessage(GetMessageContent(message));
+
+                        // Add tool calls if present
+                        if (message.ToolCalls != null && message.ToolCalls.Count > 0)
+                        {
+                            foreach (ChatMessageToolCall toolCall in message.ToolCalls)
+                            {
+                                string arguments = JsonSerializer.Serialize(toolCall.Function.Arguments ?? new Dictionary<string, object>());
+                                assistantMessage.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
+                                    toolCall.Id,
+                                    toolCall.Function.Name,
+                                    BinaryData.FromString(arguments)
+                                ));
+                            }
+                        }
+
+                        result.Add(assistantMessage);
+                        break;
+
+                    case MessageRole.ToolResponse:
+                        string toolContent = GetMessageContent(message);
+                        string toolCallId = ExtractToolCallIdFromContent(toolContent);
+
+                        // Ensure we have a valid tool call ID
+                        if (string.IsNullOrEmpty(toolCallId))
+                        {
+                            throw new InvalidOperationException($"Tool response message missing tool_call_id: {toolContent}");
+                        }
+
+                        result.Add(new ToolChatMessage(toolCallId, toolContent));
+                        break;
+
+                    case MessageRole.ToolCall:
+                        // Handle legacy ToolCall role - treat as ToolResponse
+                        string legacyToolContent = GetMessageContent(message);
+                        string legacyToolCallId = ExtractToolCallIdFromContent(legacyToolContent);
+
+                        if (string.IsNullOrEmpty(legacyToolCallId))
+                        {
+                            throw new InvalidOperationException($"Tool call message missing tool_call_id: {legacyToolContent}");
+                        }
+
+                        result.Add(new ToolChatMessage(legacyToolCallId, legacyToolContent));
+                        break;
+
+                    default:
+                        throw new ArgumentOutOfRangeException($"Unsupported message role: {message.Role}");
+                }
+            }
+
+            return result;
+        }
+
         private string? ExtractToolCallIdFromContent(string content)
         {
-            // Try to extract tool call ID from content
-            // This is a simplified implementation
+            if (string.IsNullOrEmpty(content))
+                return null;
+
+            // Enhanced extraction to handle multiple formats
             if (content.Contains("Call id:"))
             {
                 int startIndex = content.IndexOf("Call id:", StringComparison.Ordinal) + 8;
@@ -428,6 +503,16 @@ namespace SmolConv.Inference
                 if (endIndex == -1) endIndex = content.Length;
                 return content.Substring(startIndex, endIndex - startIndex).Trim();
             }
+
+            // Alternative format: "tool_call_id: xyz"
+            if (content.Contains("tool_call_id:"))
+            {
+                int startIndex = content.IndexOf("tool_call_id:", StringComparison.Ordinal) + 13;
+                int endIndex = content.IndexOf('\n', startIndex);
+                if (endIndex == -1) endIndex = content.Length;
+                return content.Substring(startIndex, endIndex - startIndex).Trim();
+            }
+
             return null;
         }
 

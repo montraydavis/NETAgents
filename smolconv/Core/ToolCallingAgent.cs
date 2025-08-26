@@ -74,83 +74,59 @@ namespace SmolConv.Core
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Stream of outputs</returns>
         protected override async IAsyncEnumerable<object> StepStreamAsync(
-            ActionStep actionStep,
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    ActionStep actionStep,
+    [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
+            // --- Phase 1: Get current memory messages ---
             List<ChatMessage> memoryMessages = Memory.ToMessages();
             List<ChatMessage> inputMessages = new List<ChatMessage>(memoryMessages);
+            actionStep = actionStep with { ModelInputMessages = inputMessages };
 
+            // --- Phase 2: Generate model response ---
             ChatMessage chatMessage;
-
-            // --- Phase 1: Model generation (stream vs non-stream) ---
-            if (_streamOutputs)
+            try
             {
-                // No try/catch around this loop: yielding inside try/catch is illegal in C# iterators.
-                List<ChatMessageStreamDelta> deltas = new List<ChatMessageStreamDelta>();
-                await foreach (ChatMessageStreamDelta delta in _model.GenerateStream(
+                chatMessage = await _model.GenerateAsync(
                     inputMessages,
                     new ModelCompletionOptions
                     {
                         ToolsToCallFrom = ToolsAndManagedAgents,
-                        ToolChoice = "auto" // Add tool choice
-                    },
-                    cancellationToken))
-                {
-                    deltas.Add(delta);
-                    yield return delta; // ✅ OK: not inside catch/finally
-                }
-
-                chatMessage = AgglomerateStreamDeltas(deltas);
-            }
-            else
-            {
-                // Allowed: no yields inside this try/catch
-                try
-                {
-                    chatMessage = await _model.GenerateAsync(
-                        inputMessages,
-                        new ModelCompletionOptions
-                        {
-                            ToolsToCallFrom = ToolsAndManagedAgents,
-                            ToolChoice = "auto" // Add tool choice
-                        },
-                        cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    throw new AgentGenerationError($"Error while generating output: {ex}", _logger);
-                }
-            }
-
-            // --- Phase 2: Ensure tool calls parsed (no yields here, so we can catch) ---
-            try
-            {
-                if (chatMessage.ToolCalls == null || chatMessage.ToolCalls.Count == 0)
-                {
-                    chatMessage = _model.ParseToolCalls(chatMessage);
-                }
+                        ToolChoice = "auto"
+                    }, cancellationToken);
             }
             catch (Exception ex)
             {
-                throw new AgentGenerationError($"Error while parsing tool calls: {ex}", _logger);
+                throw new AgentGenerationError($"Error while generating output: {ex}", _logger);
             }
 
-            // --- Phase 3: Process tool calls (stream results). No try/catch around yields. ---
-            object? finalAnswer = default(object);
-            finalAnswer = chatMessage.ContentString;
-            bool gotFinalAnswer = false;
-            List<ToolOutput> toolResponses = new List<ToolOutput>(); // Capture tool responses
+            // Parse tool calls if model doesn't support native tool calling
+            if (chatMessage.ToolCalls == null || chatMessage.ToolCalls.Count == 0)
+            {
+                try
+                {
+                    chatMessage = _model.ParseToolCalls(chatMessage);
+                }
+                catch (Exception ex)
+                {
+                    throw new AgentParsingError($"Error while parsing tool call from model output: {ex}", _logger);
+                }
+            }
 
-            if (chatMessage.ToolCalls != null)
+            // --- Phase 3: Process tool calls ---
+            object? finalAnswer = chatMessage.ContentString;
+            bool gotFinalAnswer = false;
+            List<ToolOutput> toolResponses = new List<ToolOutput>();
+
+            if (chatMessage.ToolCalls != null && chatMessage.ToolCalls.Count > 0)
             {
                 await foreach (object toolOutput in ProcessToolCallsAsync(chatMessage.ToolCalls, cancellationToken))
                 {
-                    yield return toolOutput; // ✅ streaming tool outputs
+                    yield return toolOutput;
 
                     if (toolOutput is ToolOutput output)
                     {
-                        toolResponses.Add(output); // Capture tool response
-                        
+                        toolResponses.Add(output);
+
                         if (output.IsFinalAnswer)
                         {
                             if (chatMessage.ToolCalls.Count > 1)
@@ -166,14 +142,67 @@ namespace SmolConv.Core
                 }
             }
 
-            // Update the action step with tool responses and model output
-            actionStep = actionStep with 
-            { 
+            // --- Phase 4: Update action step with model output and tool responses ---
+            actionStep = actionStep with
+            {
                 ModelOutputMessage = chatMessage,
                 ToolResponses = toolResponses.Count > 0 ? toolResponses : null
             };
 
-            // --- Phase 4: Final action output (outside any catch) ---
+            // --- Phase 5: If we have tool responses but no final answer, let the model continue ---
+            if (toolResponses.Count > 0 && !gotFinalAnswer)
+            {
+                // Create a follow-up message with tool responses for the model to process
+                List<ChatMessage> followUpMessages = new List<ChatMessage>(inputMessages);
+                followUpMessages.Add(chatMessage); // Add the assistant message with tool calls
+
+                // Add tool response messages
+                foreach (var toolResponse in toolResponses)
+                {
+                    string toolContent = $"Call id: {toolResponse.Id}\n{toolResponse.Observation}";
+                    var toolResponseMessage = new ChatMessage(
+                        MessageRole.ToolResponse,
+                        toolContent,
+                        toolContent
+                    );
+                    followUpMessages.Add(toolResponseMessage);
+                }
+
+                // Generate follow-up response from the model
+                try
+                {
+                    ChatMessage followUpResponse = await _model.GenerateAsync(
+                        followUpMessages,
+                        new ModelCompletionOptions
+                        {
+                            // Don't provide tools again to prevent infinite loop
+                            ToolsToCallFrom = null,
+                            ToolChoice = "none"
+                        }, cancellationToken);
+
+                    // Use the follow-up response as the final answer
+                    finalAnswer = followUpResponse.ContentString;
+                    gotFinalAnswer = true;
+
+                    // Update the action step with the follow-up response
+                    actionStep = actionStep with
+                    {
+                        ModelOutputMessage = followUpResponse,
+                        ToolResponses = toolResponses
+                    };
+                }
+                catch (Exception ex)
+                {
+                    // If follow-up fails, use tool response as final answer
+                    if (toolResponses.Count > 0)
+                    {
+                        finalAnswer = toolResponses.First().Observation;
+                        gotFinalAnswer = true;
+                    }
+                }
+            }
+
+            // --- Phase 6: Final action output ---
             yield return new ActionOutput(finalAnswer, gotFinalAnswer);
         }
 
@@ -216,7 +245,7 @@ namespace SmolConv.Core
             {
                 string availableToolNames = string.Join(", ", availableTools.Keys);
                 throw new AgentToolExecutionError(
-                    $"Unknown tool '{toolName}', should be one of: {availableToolNames}", 
+                    $"Unknown tool '{toolName}', should be one of: {availableToolNames}",
                     _logger);
             }
 
@@ -224,10 +253,10 @@ namespace SmolConv.Core
             {
                 // 2. Argument Conversion
                 Dictionary<string, object>? processedArgs = ConvertAndProcessArguments(arguments, tool);
-                
+
                 // 3. State Variable Validation
                 ValidateStateVariables(processedArgs);
-                
+
                 // 4. State Variable Substitution
                 processedArgs = (Dictionary<string, object>)SubstituteStateVariables(processedArgs);
 
@@ -239,7 +268,7 @@ namespace SmolConv.Core
                 bool isManagedAgent = _managedAgents.ContainsKey(toolName);
 
                 // 7. Execute tool with proper sanitization
-                object? result = await ExecuteToolWithProperSanitization(tool, processedArgs ?? new Dictionary<string, object>(), 
+                object? result = await ExecuteToolWithProperSanitization(tool, processedArgs ?? new Dictionary<string, object>(),
                                                                        isManagedAgent, cancellationToken);
 
                 // 8. Create tool output
@@ -307,14 +336,14 @@ namespace SmolConv.Core
                     return new Dictionary<string, object>();
                 }
             }
-            
+
             // For managed agents or tools with multiple inputs, use default mapping
             if (tool != null)
             {
                 string defaultArgName = GetDefaultArgumentName(tool.Name);
                 return new Dictionary<string, object> { [defaultArgName] = arguments! };
             }
-            
+
             // Default fallback - don't wrap in any key, let the tool handle it
             return new Dictionary<string, object>();
         }
@@ -343,9 +372,9 @@ namespace SmolConv.Core
         /// <param name="isManagedAgent">Whether this is a managed agent</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>The tool result</returns>
-        private async Task<object?> ExecuteToolWithProperSanitization(BaseTool tool, 
+        private async Task<object?> ExecuteToolWithProperSanitization(BaseTool tool,
                                                                     Dictionary<string, object> kwargs,
-                                                                    bool isManagedAgent, 
+                                                                    bool isManagedAgent,
                                                                     CancellationToken cancellationToken)
         {
             if (isManagedAgent)
@@ -369,7 +398,83 @@ namespace SmolConv.Core
         /// <returns>Tool output</returns>
         private ToolOutput CreateToolOutput(ToolCall toolCall, object? result, string toolName)
         {
-            string observation = result?.ToString() ?? "No output";
+            string observation;
+
+            if (result == null)
+            {
+                observation = "Tool executed successfully but returned no result.";
+            }
+            else if (result is string strResult)
+            {
+                observation = string.IsNullOrWhiteSpace(strResult) ? "Tool executed but returned empty string." : strResult;
+            }
+            else if (result is Dictionary<string, object> dictResult)
+            {
+                // Handle Dictionary results specifically - format them in a readable way
+                var sb = new System.Text.StringBuilder();
+
+                foreach (var kvp in dictResult)
+                {
+                    if (kvp.Value is string[] stringArray)
+                    {
+                        sb.AppendLine($"{kvp.Key}: [{string.Join(", ", stringArray)}]");
+                    }
+                    else if (kvp.Value is Dictionary<string, object> nestedDict)
+                    {
+                        sb.AppendLine($"{kvp.Key}:");
+                        foreach (var nested in nestedDict)
+                        {
+                            sb.AppendLine($"  {nested.Key}: {nested.Value}");
+                        }
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{kvp.Key}: {kvp.Value}");
+                    }
+                }
+
+                observation = sb.ToString().Trim();
+
+                // Fallback if dictionary formatting failed
+                if (string.IsNullOrWhiteSpace(observation))
+                {
+                    try
+                    {
+                        observation = JsonSerializer.Serialize(dictResult, new JsonSerializerOptions
+                        {
+                            WriteIndented = true,
+                            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                        });
+                    }
+                    catch
+                    {
+                        observation = $"Tool '{toolName}' returned a dictionary with {dictResult.Count} items.";
+                    }
+                }
+            }
+            else
+            {
+                // Handle other complex objects
+                try
+                {
+                    observation = JsonSerializer.Serialize(result, new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    });
+
+                    // If serialization results in empty object or null, provide fallback
+                    if (string.IsNullOrWhiteSpace(observation) || observation == "{}" || observation == "null")
+                    {
+                        observation = $"Tool '{toolName}' executed successfully. Result type: {result.GetType().Name}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    observation = $"Tool '{toolName}' executed successfully. Result type: {result.GetType().Name}. Serialization failed: {ex.Message}";
+                }
+            }
+
             bool isFinalAnswer = toolName == "final_answer";
 
             _logger.Log($"Observations: {observation}", LogLevel.Info);
@@ -403,7 +508,7 @@ namespace SmolConv.Core
                 errorMsg = $"Error executing tool '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.GetType().Name}: {ex.Message}\n" +
                           "Please try again or use another tool";
             }
-            
+
             throw new AgentToolExecutionError(errorMsg, _logger, toolName, arguments, isManagedAgent);
         }
 
@@ -485,10 +590,10 @@ namespace SmolConv.Core
         {
             if (arguments is string str)
                 return State.ContainsKey(str) ? State[str] : str;
-            
+
             if (arguments is Dictionary<string, object> dict)
                 return SubstituteDictionary(dict);
-            
+
             return arguments;
         }
 
@@ -500,7 +605,7 @@ namespace SmolConv.Core
         {
             List<string> referencedVars = ExtractStateVariableReferences(arguments);
             List<string> missingVars = referencedVars.Where(v => !State.ContainsKey(v)).ToList();
-            
+
             if (missingVars.Any())
             {
                 throw new ArgumentException(
@@ -516,7 +621,7 @@ namespace SmolConv.Core
         private List<string> ExtractStateVariableReferences(object obj)
         {
             List<string> references = new List<string>();
-            
+
             switch (obj)
             {
                 case string str:
@@ -536,7 +641,7 @@ namespace SmolConv.Core
                         references.AddRange(ExtractStateVariableReferences(item));
                     break;
             }
-            
+
             return references;
         }
 
@@ -548,8 +653,8 @@ namespace SmolConv.Core
         private bool IsStateVariableReference(string str)
         {
             // Simple heuristic: state variables typically contain underscores or are camelCase
-            return !string.IsNullOrEmpty(str) && 
-                   (str.Contains('_') || 
+            return !string.IsNullOrEmpty(str) &&
+                   (str.Contains('_') ||
                     (str.Length > 1 && char.IsLower(str[0]) && str.Any(c => char.IsUpper(c))));
         }
 
@@ -563,7 +668,7 @@ namespace SmolConv.Core
         {
             string errorMsg = $"State variable error in tool '{toolName}' with arguments {JsonSerializer.Serialize(arguments)}: {ex.Message}\n" +
                               "Please ensure all referenced state variables are defined";
-            
+
             throw new AgentToolCallError(errorMsg, _logger);
         }
 

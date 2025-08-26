@@ -38,40 +38,32 @@ namespace SmolConv.Models
                 messages.Add(ModelOutputMessage);
             }
 
-            // Add tool response messages if present
+            // CRITICAL: Add tool response messages for each tool call
             if (ToolResponses != null && ToolResponses.Count > 0)
             {
                 foreach (var toolResponse in ToolResponses)
                 {
-                    // Create a tool message for each tool response
-                    // The content should include the tool_call_id in a format the model can extract
+                    // Format: "Call id: {tool_call_id}\n{response_content}"
                     string toolContent = $"Call id: {toolResponse.Id}\n{toolResponse.Observation}";
-                    
+
                     var toolMessage = new ChatMessage(
-                        MessageRole.ToolResponse, 
-                        toolContent, 
+                        MessageRole.ToolResponse,
+                        toolContent,
                         toolContent
                     );
                     messages.Add(toolMessage);
                 }
             }
 
+            // Handle additional observations if needed
             if (!string.IsNullOrEmpty(Observations))
             {
-                List<Dictionary<string, object>> content = new List<Dictionary<string, object>>
-                {
-                    new() { ["type"] = "text", ["text"] = Observations }
-                };
-
-                if (ObservationsImages != null)
-                {
-                    foreach (var image in ObservationsImages)
-                    {
-                        content.Add(new Dictionary<string, object> { ["type"] = "image", ["image"] = image });
-                    }
-                }
-
-                messages.Add(new ChatMessage(MessageRole.User, content, JsonSerializer.Serialize(content)));
+                var observationMessage = new ChatMessage(
+                    MessageRole.User,
+                    Observations,
+                    Observations
+                );
+                messages.Add(observationMessage);
             }
 
             return messages;
