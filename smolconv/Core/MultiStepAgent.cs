@@ -319,6 +319,9 @@ namespace SmolConv.Core
                             actionStep = actionStep with { IsFinalAnswer = true, ActionOutput = finalAnswer };
                         }
                     }
+                    
+                    // Get the updated action step from the ToolCallingAgent (which may contain tool responses)
+                    // This is handled by the ToolCallingAgent updating the actionStep parameter
                 }
                 catch (AgentGenerationError)
                 {

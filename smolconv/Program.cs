@@ -9,15 +9,16 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Formatting;
 using SmolConv.Inference;
+using SmolConv.Exceptions;
 
 
 Directory.CreateDirectory("tmp");
 
 InitMSBuild.EnsureMSBuildLocated();
 
-SolutionAnalyzer analyzer = new SolutionAnalyzer();
-Solution solution = await analyzer.LoadSolutionAsync("/Users/montraydavis/NETAgents/NETAgents.sln");
-SourceDependencyGraph analysis = await analyzer.AnalyzeSolutionAsync(solution, false);
+SolutionAnalyzer solutionAnalyzer = new SolutionAnalyzer();
+Solution solution = await solutionAnalyzer.LoadSolutionAsync("/Users/montraydavis/NETAgents/NETAgents.sln");
+SourceDependencyGraph analysis = await solutionAnalyzer.AnalyzeSolutionAsync(solution, false);
 
 // Process each node and generate markdown documentation
 foreach (SourceTypeNode node in analysis.Nodes.Values)
@@ -156,10 +157,13 @@ foreach (SourceTypeNode node in analysis.Nodes.Values)
 
 string endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT") ?? string.Empty;
 string apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY") ?? string.Empty;
-ToolCallingAgent agent = new ToolCallingAgent([], new AzureOpenAIModel("gpt-4.1", endpoint, apiKey));
+
+var solutionAnalysisTool = new SolutionAnalysisTool();
+
+ToolCallingAgent agent = new ToolCallingAgent([solutionAnalysisTool], new AzureOpenAIModel("gpt-4.1", endpoint, apiKey, false));
 
 Console.WriteLine("Starting agent execution...");
-object result = await agent.RunAsync("What is the capital of paris ?");
+object result = await agent.RunAsync("Analyze the solution at '/Users/montraydavis/NETAgents/NETAgents.sln' and give me basic project information");
 Console.WriteLine("Agent execution completed.");
 
 // Look for the final answer in the agent's memory steps

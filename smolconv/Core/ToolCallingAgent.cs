@@ -139,6 +139,7 @@ namespace SmolConv.Core
             object? finalAnswer = default(object);
             finalAnswer = chatMessage.ContentString;
             bool gotFinalAnswer = false;
+            List<ToolOutput> toolResponses = new List<ToolOutput>(); // Capture tool responses
 
             if (chatMessage.ToolCalls != null)
             {
@@ -146,19 +147,31 @@ namespace SmolConv.Core
                 {
                     yield return toolOutput; // ✅ streaming tool outputs
 
-                    if (toolOutput is ToolOutput output && output.IsFinalAnswer)
+                    if (toolOutput is ToolOutput output)
                     {
-                        if (chatMessage.ToolCalls.Count > 1)
-                            throw new AgentExecutionError("Cannot return answer with multiple tool calls", _logger);
+                        toolResponses.Add(output); // Capture tool response
+                        
+                        if (output.IsFinalAnswer)
+                        {
+                            if (chatMessage.ToolCalls.Count > 1)
+                                throw new AgentExecutionError("Cannot return answer with multiple tool calls", _logger);
 
-                        if (gotFinalAnswer)
-                            throw new AgentToolExecutionError("Multiple final answers returned", _logger);
+                            if (gotFinalAnswer)
+                                throw new AgentToolExecutionError("Multiple final answers returned", _logger);
 
-                        finalAnswer = output.Output;
-                        gotFinalAnswer = true;
+                            finalAnswer = output.Output;
+                            gotFinalAnswer = true;
+                        }
                     }
                 }
             }
+
+            // Update the action step with tool responses and model output
+            actionStep = actionStep with 
+            { 
+                ModelOutputMessage = chatMessage,
+                ToolResponses = toolResponses.Count > 0 ? toolResponses : null
+            };
 
             // --- Phase 4: Final action output (outside any catch) ---
             yield return new ActionOutput(finalAnswer, gotFinalAnswer);

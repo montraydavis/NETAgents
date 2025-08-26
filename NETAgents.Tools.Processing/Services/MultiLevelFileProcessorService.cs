@@ -24,7 +24,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
         _options = options;
     }
 
-    private Model GetOrCreateModel()
+    private Model GetOrCreateModel(bool cache = true)
     {
         ThrowIfDisposed();
         
@@ -47,7 +47,7 @@ public class MultiLevelFileProcessorService : IMultiLevelFileProcessorService
             }
             
             _logger.LogInformation("Initializing Azure OpenAI model with endpoint: {Endpoint}", endpoint);
-            _model = new AzureOpenAIModel("gpt-4.1", endpoint, apiKey);
+            _model = new AzureOpenAIModel("gpt-4.1", endpoint, apiKey, cache);
             return _model;
         }
     }

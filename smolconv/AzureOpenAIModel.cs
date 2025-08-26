@@ -16,14 +16,16 @@ namespace SmolConv.Inference
         private readonly ChatClient _chatClient;
         private readonly string _modelId;
         private readonly string _endpoint;
+        private readonly bool _useCache;
         private readonly string _cacheDirectory;
         private readonly string _cacheSalt;
         private readonly IList<ChatMessage> _messageHistory;
 
-        public AzureOpenAIModel(string modelId, string endpoint, string apiKey) : base(modelId: modelId)
+        public AzureOpenAIModel(string modelId, string endpoint, string apiKey, bool cache = true) : base(modelId: modelId)
         {
             _modelId = modelId;
             _endpoint = endpoint;
+            _useCache = cache;
 
             _messageHistory = new List<ChatMessage>();
 
@@ -65,7 +67,7 @@ namespace SmolConv.Inference
 
                 // Try to load from cache first
                 ChatMessage? cachedResponse = LoadFromCache(cacheFilePath);
-                if (cachedResponse != null)
+                if (_useCache && cachedResponse != null)
                 {
                     Debug.WriteLine($"Loaded from cache: {cacheFilePath}");
                     foreach (ChatMessage message in messages)

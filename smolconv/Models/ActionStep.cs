@@ -10,6 +10,7 @@ namespace SmolConv.Models
         public ChatMessage? ModelOutputMessage { get; init; }
         public string? ModelOutput { get; init; }
         public List<ToolCall>? ToolCalls { get; init; }
+        public List<ToolOutput>? ToolResponses { get; init; } // Add tool responses
         public string? Observations { get; init; }
         public List<object>? ObservationsImages { get; init; }
         public string? CodeAction { get; init; }
@@ -35,6 +36,24 @@ namespace SmolConv.Models
             if (ModelOutputMessage != null)
             {
                 messages.Add(ModelOutputMessage);
+            }
+
+            // Add tool response messages if present
+            if (ToolResponses != null && ToolResponses.Count > 0)
+            {
+                foreach (var toolResponse in ToolResponses)
+                {
+                    // Create a tool message for each tool response
+                    // The content should include the tool_call_id in a format the model can extract
+                    string toolContent = $"Call id: {toolResponse.Id}\n{toolResponse.Observation}";
+                    
+                    var toolMessage = new ChatMessage(
+                        MessageRole.ToolResponse, 
+                        toolContent, 
+                        toolContent
+                    );
+                    messages.Add(toolMessage);
+                }
             }
 
             if (!string.IsNullOrEmpty(Observations))

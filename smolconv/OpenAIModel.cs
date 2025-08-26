@@ -7,6 +7,7 @@ using ChatMessage = SmolConv.Models.ChatMessage;
 
 namespace SmolConv.Exceptions
 {
+    
     public class OpenAIModel : Model
     {
         private readonly ChatClient _client;
