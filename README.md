@@ -1,4 +1,4 @@
-# NETAgents
+# NETAgents [WORK IN PROGRESS]
 
 ## A .NET Agentic Framework
 
