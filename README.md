@@ -1,4 +1,4 @@
-# NETAgents 🚀
+# NETAgents 🚀 (EXPERIMENTAL - WORK IN PROGRESS)
 
 > **A powerful .NET implementation of multi-agent AI systems, reimagined for the C# ecosystem**
 
