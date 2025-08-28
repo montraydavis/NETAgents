@@ -31,7 +31,7 @@ graph TD
     Q --> S[Code Metrics]
 ```
 
-**NETAgents** is a complete .NET rewrite of Hugging Face's `smolagents` library, purpose-built for C# developers who want to harness the power of AI agents with native .NET performance, static analysis, and deep ecosystem integration.
+**NETAgents** is a complete .NET rewrite of Hugging Face's [`smolagents`](https://github.com/huggingface/smolagents) library, purpose-built for C# developers who want to harness the power of AI agents with native .NET performance, static analysis, and deep ecosystem integration.
 
 ## ✨ Why NETAgents?
 
