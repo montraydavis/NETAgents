@@ -78,19 +78,30 @@ namespace MCPCSharpRelevancy.Models
     }
 
     /// <summary>
-    /// Information about processing a specific node
+    /// Detailed information about node processing order and characteristics
     /// </summary>
     public class NodeProcessingInfo
     {
         public string NodeId { get; set; } = string.Empty;
         public string NodeName { get; set; } = string.Empty;
         public NodeType NodeType { get; set; }
-        public TimeSpan ProcessingTime { get; set; }
+        public int DependencyLevel { get; set; }
+        public int ProcessingOrder { get; set; }
         public int DependencyCount { get; set; }
         public int DependentCount { get; set; }
         public bool IsCyclic { get; set; }
+        public bool CanProcessInParallel { get; set; }
+        public TimeSpan ProcessingTime { get; set; }
         public int UnprocessedDependencyCount { get; set; }
+
+        public override string ToString()
+        {
+            return $"Order: {ProcessingOrder}, Level: {DependencyLevel}, " +
+                   $"Node: {NodeName}, Dependencies: {DependencyCount}, " +
+                   $"Dependents: {DependentCount}, Cyclic: {IsCyclic}";
+        }
     }
+
 
     /// <summary>
     /// Represents a group of nodes in a dependency cycle

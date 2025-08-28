@@ -1,6 +1,7 @@
-namespace NETAgents.Tools.Processing.Models;
-
-public class DomainKeywordsResponse
+namespace NETAgents.Tools.Processing.Models
 {
-    public List<DomainKeyword> Domains { get; set; } = new();
+    public class DomainKeywordsResponse
+    {
+        public List<DomainKeyword> Domains { get; set; } = new();
+    }
 }

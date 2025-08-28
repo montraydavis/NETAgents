@@ -1,7 +1,8 @@
-namespace NETAgents.Tools.Processing.Models;
-
-public enum JobProcessingLevel
+namespace NETAgents.Tools.Processing.Models
 {
-    Ast = 1,
-    DomainKeywords = 2
+    public enum JobProcessingLevel
+    {
+        Ast = 1,
+        DomainKeywords = 2
+    }
 }

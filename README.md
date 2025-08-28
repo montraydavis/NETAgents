@@ -15,24 +15,28 @@ The framework implements the ReAct (Reasoning and Acting) pattern, allowing agen
 ### Core Components
 
 #### 1. **Agent System**
+
 - **`MultiStepAgent`** - Abstract base class for all multi-step agents
 - **`ToolCallingAgent`** - Concrete implementation for tool-calling agents
 - **`AgentMemory`** - Manages conversation history and step tracking
 - **`AgentLogger`** - Comprehensive logging system with multiple verbosity levels
 
 #### 2. **Model Integration**
+
 - **`Model`** - Abstract base class for language models
 - **`AzureOpenAIModel`** - Azure OpenAI integration
 - **`OpenAIModel`** - OpenAI API integration
 - **`ChatMessage`** - Standardized message format with tool call support
 
 #### 3. **Tools & Execution**
+
 - **`BaseTool`** - Base interface for all tools
 - **`Tool`** - Abstract implementation for custom tools
 - **`PipelineTool`** - Specialized base for ML pipeline tools
 - **`LocalPythonExecutor`** - Python code execution capabilities
 
 #### 4. **Type System**
+
 - **`AgentType`** - Base class for agent data types
 - **`AgentText`**, **`AgentImage`**, **`AgentAudio`** - Specialized data types
 - **`AgentTypeMapping`** - Handles type conversion and validation
@@ -51,10 +55,12 @@ The framework implements the ReAct (Reasoning and Acting) pattern, allowing agen
 ## Installation & Setup
 
 ### Prerequisites
+
 - .NET 9.0 SDK
 - Azure OpenAI or OpenAI API access
 
 ### Dependencies
+
 ```xml
 <PackageReference Include="Azure.AI.OpenAI" Version="2.2.0-beta.5" />
 <PackageReference Include="Azure.Core" Version="1.47.2" />
@@ -70,9 +76,9 @@ The framework implements the ReAct (Reasoning and Acting) pattern, allowing agen
 ### Basic Agent Setup
 
 ```csharp
-using SmolConv.Core;
-using SmolConv.Models;
-using SmolConv.Tools;
+using NETAgents.Core;
+using NETAgents.Models;
+using NETAgents.Tools;
 
 // Configure environment
 string endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT");
@@ -174,6 +180,7 @@ public override Dictionary<string, Dictionary<string, object>> Inputs =>
 ## Advanced Features
 
 ### Managed Agents
+
 Support for hierarchical agent orchestration:
 
 ```csharp
@@ -182,6 +189,7 @@ var masterAgent = new ToolCallingAgent(tools, model, managedAgents: managedAgent
 ```
 
 ### Python Execution
+
 Execute Python code within the agent workflow:
 
 ```csharp
@@ -192,6 +200,7 @@ var pythonExecutor = new LocalPythonExecutor(
 ```
 
 ### Streaming & Callbacks
+
 Real-time execution monitoring:
 
 ```csharp
@@ -206,8 +215,8 @@ var stepCallbacks = new Dictionary<Type, List<Action<MemoryStep, object>>>
 
 ## Project Structure
 
-```
-smolconv/
+```markdown
+NETAgents/
 ├── Core/
 │   ├── MultiStepAgent.cs      # Base agent implementation
 │   ├── ToolCallingAgent.cs    # Tool-calling agent
@@ -237,12 +246,14 @@ Following the original `Smolagents` architecture while adapting to C# convention
 ## Configuration
 
 ### Environment Variables
+
 ```bash
 AOAI_ENDPOINT=https://your-resource.openai.azure.com/
 AOAI_API_KEY=your-api-key
 ```
 
 ### Logging Levels
+
 - `LogLevel.Debug` - Detailed debugging information  
 - `LogLevel.Info` - General information (default)  
 - `LogLevel.Warning` - Warning messages  
@@ -275,5 +286,5 @@ The framework provides comprehensive error handling:
 - 🔄 Docker containerization
 
 ---
- 
+
 **Status:** Active Development  

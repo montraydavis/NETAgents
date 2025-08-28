@@ -1,41 +1,46 @@
 # NETAgents Processing Worker Service
 
-A robust, efficient, and optimized processing queue system for handling file processing tasks using AI models.
+A robust, efficient, and optimized processing queue system for handling code documentation generation.
 
 ## Features
 
 ### 🚀 **Robust Queue Architecture**
+
 - **Bounded Channel Queue**: Uses `System.Threading.Channels` for high-performance, thread-safe queuing
 - **Concurrent Processing**: Configurable number of background workers (default: 3)
 - **Backpressure Handling**: Queue automatically handles overflow with wait semantics
 - **Job Tracking**: Complete job lifecycle tracking with status, timing, and error handling
 
 ### 🔄 **Background Processing**
+
 - **Multiple Workers**: Parallel processing with configurable worker count
 - **Non-blocking Operations**: Async/await throughout the entire pipeline
 - **Graceful Shutdown**: Proper cleanup and cancellation handling
 - **Monitoring Loop**: Real-time queue statistics and health monitoring
 
 ### 📁 **File Discovery & Monitoring**
+
 - **Initial Discovery**: Scans input directory for existing files on startup
 - **File Watcher**: Real-time monitoring for new/modified files (optional)
 - **Pattern Matching**: Configurable file patterns (default: `*.md`)
 - **Duplicate Prevention**: Tracks processed files to avoid reprocessing
 
 ### 🛡️ **Error Handling & Resilience**
+
 - **Retry Logic**: Configurable retry attempts with exponential backoff
 - **Timeout Protection**: Per-job timeout handling to prevent hanging
 - **Error Logging**: Comprehensive error tracking and logging
 - **Graceful Degradation**: Continues processing even if individual jobs fail
 
 ### ⚙️ **Configuration Management**
+
 - **AppSettings Integration**: All settings configurable via `appsettings.json`
 - **Environment Variables**: Support for environment-based configuration
 - **Hot Reload**: Configuration changes can be applied without restart
 
 ## Architecture
 
-```
+```markdown
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   File Discovery│    │  Processing Queue│    │ Background      │
 │   Service       │───▶│  Service         │───▶│ Workers         │
@@ -51,6 +56,7 @@ A robust, efficient, and optimized processing queue system for handling file pro
 ## Configuration
 
 ### appsettings.json
+
 ```json
 {
   "Processing": {
@@ -109,19 +115,24 @@ The service provides comprehensive logging:
 ## Usage
 
 ### Running the Service
+
 ```bash
 cd NETAgents.Tools.Processing
 dotnet run
 ```
 
 ### Adding Files for Processing
+
 Simply place `.md` files in the configured input directory. The service will:
+
 1. Automatically discover existing files on startup
 2. Monitor for new files if file watcher is enabled
 3. Process files in parallel using the queue system
 
 ### Stopping the Service
+
 Press `Ctrl+C` for graceful shutdown. The service will:
+
 1. Stop accepting new jobs
 2. Complete in-progress jobs
 3. Clean up resources
@@ -149,22 +160,25 @@ The system handles various error scenarios:
 - **.NET 9.0**: Modern .NET runtime
 - **System.Threading.Channels**: High-performance queuing
 - **Microsoft.Extensions.Hosting**: Background service framework
-- **SmolConv**: AI model integration
+- **NETAgents**: AI model integration
 - **Azure OpenAI**: AI processing capabilities
 
 ## Development
 
 ### Building
+
 ```bash
 dotnet build
 ```
 
 ### Testing
+
 ```bash
 dotnet test
 ```
 
 ### Configuration
+
 Modify `appsettings.json` or use environment variables for configuration.
 
 ## Production Deployment
@@ -189,6 +203,7 @@ For production deployment:
 ### Log Analysis
 
 Monitor these log patterns:
+
 - `Job {JobId} enqueued` - Job successfully added to queue
 - `Worker {WorkerId} processing job {JobId}` - Job processing started
 - `Job {JobId} completed successfully` - Job completed

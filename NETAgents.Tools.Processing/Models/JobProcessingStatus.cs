@@ -1,10 +1,11 @@
-namespace NETAgents.Tools.Processing.Models;
-
-public enum JobProcessingStatus
+namespace NETAgents.Tools.Processing.Models
 {
-    Pending,
-    Processing,
-    Completed,
-    Failed,
-    Retrying
+    public enum JobProcessingStatus
+    {
+        Pending,
+        Processing,
+        Completed,
+        Failed,
+        Retrying
+    }
 }

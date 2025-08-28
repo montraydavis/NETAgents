@@ -14,6 +14,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../smolconv/smolconv.csproj" />
+    <ProjectReference Include="../NETAgents/NETAgents.csproj" />
   </ItemGroup>
 </Project>

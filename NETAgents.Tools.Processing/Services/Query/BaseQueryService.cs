@@ -1,62 +1,98 @@
 using System.Diagnostics;
 using NETAgents.Tools.Processing.Cache;
 
-namespace NETAgents.Tools.Processing.Services.Query;
-
-public abstract class BaseQueryService
+namespace NETAgents.Tools.Processing.Services.Query
 {
-    protected readonly ILogger _logger;
-    protected readonly string _cacheDirectory;
-
-    protected BaseQueryService(ILogger logger, string cacheDirectory)
+    public abstract class BaseQueryService
     {
-        _logger = logger;
-        _cacheDirectory = cacheDirectory;
-    }
+        protected readonly ILogger _logger;
+        protected readonly string _cacheDirectory;
 
-    protected async Task<QueryResult<T>> ExecuteQueryAsync<T>(
-        Func<CancellationToken, Task<List<T>>> dataProvider,
-        string queryType,
-        CancellationToken cancellationToken = default)
-    {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        
-        try
+        protected BaseQueryService(ILogger logger, string cacheDirectory)
         {
-            List<T> items = await dataProvider(cancellationToken);
-            stopwatch.Stop();
-
-            return CreateSuccessResult(items, queryType, stopwatch.Elapsed);
+            _logger = logger;
+            _cacheDirectory = cacheDirectory;
         }
-        catch (Exception ex)
+
+        protected async Task<QueryResult<T>> ExecuteQueryAsync<T>(
+            Func<CancellationToken, Task<List<T>>> dataProvider,
+            string queryType,
+            CancellationToken cancellationToken = default)
         {
-            _logger.LogError(ex, "Failed to execute {QueryType}", queryType);
-            stopwatch.Stop();
+            Stopwatch stopwatch = Stopwatch.StartNew();
+        
+            try
+            {
+                List<T> items = await dataProvider(cancellationToken);
+                stopwatch.Stop();
+
+                return CreateSuccessResult(items, queryType, stopwatch.Elapsed);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to execute {QueryType}", queryType);
+                stopwatch.Stop();
             
-            return CreateErrorResult<T>(queryType, ex.Message, stopwatch.Elapsed);
+                return CreateErrorResult<T>(queryType, ex.Message, stopwatch.Elapsed);
+            }
         }
-    }
 
-    protected async Task<QueryResult<T>> ExecuteFilteredQueryAsync<T>(
-        Func<CancellationToken, Task<List<T>>> dataProvider,
-        Func<IEnumerable<T>, IEnumerable<T>> filter,
-        string queryType,
-        Dictionary<string, object>? additionalMetadata = null,
-        CancellationToken cancellationToken = default)
-    {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        
-        try
+        protected async Task<QueryResult<T>> ExecuteFilteredQueryAsync<T>(
+            Func<CancellationToken, Task<List<T>>> dataProvider,
+            Func<IEnumerable<T>, IEnumerable<T>> filter,
+            string queryType,
+            Dictionary<string, object>? additionalMetadata = null,
+            CancellationToken cancellationToken = default)
         {
-            List<T> allItems = await dataProvider(cancellationToken);
-            List<T> filteredItems = filter(allItems).ToList();
-            stopwatch.Stop();
+            Stopwatch stopwatch = Stopwatch.StartNew();
+        
+            try
+            {
+                List<T> allItems = await dataProvider(cancellationToken);
+                List<T> filteredItems = filter(allItems).ToList();
+                stopwatch.Stop();
 
+                Dictionary<string, object> metadata = new Dictionary<string, object>
+                {
+                    ["QueryType"] = queryType,
+                    ["FilteredFromTotal"] = allItems.Count,
+                    ["FilteredCount"] = filteredItems.Count
+                };
+
+                if (additionalMetadata != null)
+                {
+                    foreach (KeyValuePair<string, object> kvp in additionalMetadata)
+                    {
+                        metadata[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                return new QueryResult<T>
+                {
+                    Items = filteredItems,
+                    TotalCount = filteredItems.Count,
+                    QueryDuration = stopwatch.Elapsed,
+                    Metadata = metadata
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to execute filtered {QueryType}", queryType);
+                stopwatch.Stop();
+            
+                return CreateErrorResult<T>(queryType, ex.Message, stopwatch.Elapsed);
+            }
+        }
+
+        private static QueryResult<T> CreateSuccessResult<T>(
+            List<T> items, 
+            string queryType, 
+            TimeSpan duration,
+            Dictionary<string, object>? additionalMetadata = null)
+        {
             Dictionary<string, object> metadata = new Dictionary<string, object>
             {
-                ["QueryType"] = queryType,
-                ["FilteredFromTotal"] = allItems.Count,
-                ["FilteredCount"] = filteredItems.Count
+                ["QueryType"] = queryType
             };
 
             if (additionalMetadata != null)
@@ -69,64 +105,29 @@ public abstract class BaseQueryService
 
             return new QueryResult<T>
             {
-                Items = filteredItems,
-                TotalCount = filteredItems.Count,
-                QueryDuration = stopwatch.Elapsed,
+                Items = items,
+                TotalCount = items.Count,
+                QueryDuration = duration,
                 Metadata = metadata
             };
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to execute filtered {QueryType}", queryType);
-            stopwatch.Stop();
-            
-            return CreateErrorResult<T>(queryType, ex.Message, stopwatch.Elapsed);
-        }
-    }
 
-    private static QueryResult<T> CreateSuccessResult<T>(
-        List<T> items, 
-        string queryType, 
-        TimeSpan duration,
-        Dictionary<string, object>? additionalMetadata = null)
-    {
-        Dictionary<string, object> metadata = new Dictionary<string, object>
+        private static QueryResult<T> CreateErrorResult<T>(
+            string queryType, 
+            string errorMessage, 
+            TimeSpan duration)
         {
-            ["QueryType"] = queryType
-        };
-
-        if (additionalMetadata != null)
-        {
-            foreach (KeyValuePair<string, object> kvp in additionalMetadata)
+            return new QueryResult<T>
             {
-                metadata[kvp.Key] = kvp.Value;
-            }
+                Items = new List<T>(),
+                TotalCount = 0,
+                QueryDuration = duration,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["QueryType"] = queryType,
+                    ["Error"] = errorMessage
+                }
+            };
         }
-
-        return new QueryResult<T>
-        {
-            Items = items,
-            TotalCount = items.Count,
-            QueryDuration = duration,
-            Metadata = metadata
-        };
-    }
-
-    private static QueryResult<T> CreateErrorResult<T>(
-        string queryType, 
-        string errorMessage, 
-        TimeSpan duration)
-    {
-        return new QueryResult<T>
-        {
-            Items = new List<T>(),
-            TotalCount = 0,
-            QueryDuration = duration,
-            Metadata = new Dictionary<string, object>
-            {
-                ["QueryType"] = queryType,
-                ["Error"] = errorMessage
-            }
-        };
     }
 }

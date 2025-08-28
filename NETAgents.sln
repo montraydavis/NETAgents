@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "smolconv", "smolconv\smolconv.csproj", "{49F32B4C-6CF1-9936-25BC-6389F1FF4128}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NETAgents", "NETAgents\NETAgents.csproj", "{49F32B4C-6CF1-9936-25BC-6389F1FF4128}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NETAgents.Tools.CSStaticAnalysis", "NETAgents.Tools.CSStaticAnalysis\NETAgents.Tools.CSStaticAnalysis.csproj", "{F7A93E16-1BE2-48D8-9A57-E332D38113DC}"
 EndProject
