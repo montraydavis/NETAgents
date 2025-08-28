@@ -1,290 +1,388 @@
-# NETAgents [WORK IN PROGRESS]
+# NETAgents 🚀
 
-## A .NET Agentic Framework
+> **A powerful .NET implementation of multi-agent AI systems, reimagined for the C# ecosystem**
 
-**Target Framework:** .NET 9.0  
-
-### Overview
-
-NETAgents is a comprehensive .NET agentic framework that provides a deeply integrated solution for building AI agents within the C# ecosystem. This project began as a faithful rewrite of Hugging Face's `Smolagents` framework, adapted specifically for .NET developers.
-
-The framework implements the ReAct (Reasoning and Acting) pattern, allowing agents to solve complex tasks step by step through a cycle of action and observation.
-
-## Architecture
-
-### Core Components
-
-#### 1. **Agent System**
-
-- **`MultiStepAgent`** - Abstract base class for all multi-step agents
-- **`ToolCallingAgent`** - Concrete implementation for tool-calling agents
-- **`AgentMemory`** - Manages conversation history and step tracking
-- **`AgentLogger`** - Comprehensive logging system with multiple verbosity levels
-
-#### 2. **Model Integration**
-
-- **`Model`** - Abstract base class for language models
-- **`AzureOpenAIModel`** - Azure OpenAI integration
-- **`OpenAIModel`** - OpenAI API integration
-- **`ChatMessage`** - Standardized message format with tool call support
-
-#### 3. **Tools & Execution**
-
-- **`BaseTool`** - Base interface for all tools
-- **`Tool`** - Abstract implementation for custom tools
-- **`PipelineTool`** - Specialized base for ML pipeline tools
-- **`LocalPythonExecutor`** - Python code execution capabilities
-
-#### 4. **Type System**
-
-- **`AgentType`** - Base class for agent data types
-- **`AgentText`**, **`AgentImage`**, **`AgentAudio`** - Specialized data types
-- **`AgentTypeMapping`** - Handles type conversion and validation
-
-### Key Features
-
-✅ **ReAct Framework Implementation** - Step-by-step reasoning and acting  
-✅ **Tool Integration** - Extensible tool system with validation  
-✅ **Multi-Model Support** - OpenAI and Azure OpenAI integration  
-✅ **Type Safety** - Comprehensive C# type system  
-✅ **Memory Management** - Conversation history and state tracking  
-✅ **Code Execution** - Python code execution capabilities  
-✅ **Validation System** - Robust argument and tool validation  
-✅ **Logging & Monitoring** - Detailed execution tracking  
-
-## Installation & Setup
-
-### Prerequisites
-
-- .NET 9.0 SDK
-- Azure OpenAI or OpenAI API access
-
-### Dependencies
-
-```xml
-<PackageReference Include="Azure.AI.OpenAI" Version="2.2.0-beta.5" />
-<PackageReference Include="Azure.Core" Version="1.47.2" />
-<PackageReference Include="Azure.Identity" Version="1.13.1" />
-<PackageReference Include="Microsoft.SemanticKernel" Version="1.62.0" />
-<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
-<PackageReference Include="Markdig" Version="0.37.0" />
-<PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+```mermaid
+graph TD
+    A[User Task] --> B[MultiStepAgent]
+    B --> C[ToolCallingAgent]
+    B --> D[CodeAgent]
+    
+    C --> E[Tool Registry]
+    E --> F[SolutionAnalysisTool]
+    E --> G[FinalAnswerTool]
+    E --> H[Custom Tools]
+    
+    C --> I[Model Interface]
+    D --> I
+    I --> J[AzureOpenAIModel]
+    I --> K[OpenAIModel]
+    
+    J --> L[Response Cache]
+    K --> L
+    
+    B --> M[Memory System]
+    M --> N[ActionStep]
+    M --> O[ToolOutput]
+    M --> P[TokenUsage]
+    
+    F --> Q[Roslyn Analysis]
+    Q --> R[Dependency Graph]
+    Q --> S[Code Metrics]
 ```
 
-## Quick Start
+**NETAgents** is a complete .NET rewrite of Hugging Face's `smolagents` library, purpose-built for C# developers who want to harness the power of AI agents with native .NET performance, static analysis, and deep ecosystem integration.
 
-### Basic Agent Setup
+## ✨ Why NETAgents?
 
+### 🔍 **Native C# Static Analysis**
+Unlike Python-based solutions, NETAgents provides **100% contextual awareness** of your C# codebase through advanced Roslyn-powered static analysis:
+
+```csharp
+var solutionTool = new SolutionAnalysisTool();
+var agent = new ToolCallingAgent([solutionTool], model);
+
+// Get complete dependency graphs, project metrics, and code insights
+var result = await agent.RunAsync("Analyze my solution and suggest refactoring opportunities");
+```
+
+### 🎯 **Direct C# Object Manipulation**
+Work directly with .NET objects - no serialization overhead or type conversion headaches:
+
+```csharp
+// Native C# types throughout the pipeline
+public class CustomerAnalysisTool : Tool
+{
+    public override object Forward(object?[]? args, Dictionary<string, object>? kwargs)
+    {
+        var customer = kwargs["customer"] as Customer; // Direct object access
+        return new AnalysisResult 
+        { 
+            Score = CalculateScore(customer),
+            Recommendations = GenerateRecommendations(customer)
+        };
+    }
+}
+```
+
+### 🔧 **Deep .NET Ecosystem Integration**
+Built from the ground up for the .NET ecosystem with first-class support for:
+- **Entity Framework** for data persistence
+- **ASP.NET Core** for web APIs
+- **Azure services** for cloud deployment
+- **MSBuild** for build automation
+- **NuGet** package management
+
+## 🚀 Quick Start
+
+### Installation
+```bash
+dotnet add package NETAgents
+```
+
+### Your First Agent
 ```csharp
 using NETAgents.Core;
-using NETAgents.Models;
-using NETAgents.Tools;
+using NETAgents.Inference;
 
-// Configure environment
-string endpoint = Environment.GetEnvironmentVariable("AOAI_ENDPOINT");
-string apiKey = Environment.GetEnvironmentVariable("AOAI_API_KEY");
+// Initialize with Azure OpenAI
+var model = new AzureOpenAIModel("gpt-4.1", endpoint, apiKey);
 
-// Create tools
-var tools = new List<Tool> { /* your tools */ };
+// Create a tool-calling agent
+var agent = new ToolCallingAgent(tools: [new WebSearchTool()], model: model);
 
-// Initialize model
-var model = new AzureOpenAIModel("gpt-4", endpoint, apiKey);
-
-// Create agent
-var agent = new ToolCallingAgent(tools, model);
-
-// Execute task
-var result = await agent.RunAsync("Your task description here");
+// Run your agent
+var result = await agent.RunAsync("Search for the latest .NET 9 features");
+Console.WriteLine(result);
 ```
 
-### Creating Custom Tools
+## 🏗️ Architecture Overview
 
-```csharp
-public class CustomTool : Tool
-{
-    public override string Name => "custom_tool";
+NETAgents follows a clean, modular architecture designed for enterprise .NET applications:
+
+```mermaid
+graph LR
+    A[Agent Layer] --> B[Tool Layer]
+    B --> C[Model Layer]
     
-    public override Dictionary<string, Dictionary<string, object>> Inputs => 
-        new()
-        {
-            ["input"] = new()
-            {
-                ["type"] = "string",
-                ["description"] = "Input description"
-            }
-        };
-
-    public override async Task<object> ForwardAsync(Dictionary<string, object> arguments)
-    {
-        // Implement your tool logic
-        string input = arguments["input"].ToString();
-        return $"Processed: {input}";
-    }
-}
+    A1[Multi-step Agents] --> A
+    A2[Code Agents] --> A
+    A3[Tool Calling Agents] --> A
+    
+    B1[C# Static Analysis] --> B
+    B2[Solution Analysis] --> B
+    B3[Custom Tools] --> B
+    
+    C1[Azure OpenAI] --> C
+    C2[OpenAI Direct] --> C
+    C3[Local Models] --> C
 ```
 
-## Framework Components
+## 🛠️ Core Components
 
-### Agent Configuration
+### 🤖 **Agent Types**
 
+#### ToolCallingAgent
+Perfect for general-purpose AI workflows with tool integration:
 ```csharp
 var agent = new ToolCallingAgent(
-    tools: toolsList,
+    tools: [new FileAnalysisTool(), new DatabaseQueryTool()],
     model: model,
-    maxSteps: 10,                    // Maximum reasoning steps
-    streamOutputs: false,            // Enable streaming
-    instructions: "Custom prompt",   // Additional instructions
-    addBaseTools: true,             // Include default tools
-    verbosityLevel: LogLevel.Info   // Logging level
+    maxSteps: 10,
+    verbosityLevel: LogLevel.Info
 );
 ```
 
-### Memory & State Management
-
-The framework maintains conversation state through `AgentMemory`:
-
+#### CodeAgent  
+Specialized for code generation and analysis with Python execution support:
 ```csharp
-// Access agent memory
+var codeAgent = new CodeAgent(
+    tools: [new PythonExecutorTool()],
+    model: model,
+    executorType: "local",
+    maxSteps: 15
+);
+```
+
+### 🔧 **Built-in Tools**
+
+#### SolutionAnalysisTool
+Leverage Roslyn for comprehensive C# solution analysis:
+```csharp
+var analysisResult = await solutionTool.Call(args: null, kwargs: new Dictionary<string, object>
+{
+    ["solution_path"] = @"C:\MyProject\MyProject.sln",
+    ["analysis_type"] = "comprehensive",
+    ["include_system_types"] = true
+});
+```
+
+**Analysis Types:**
+- `basic` - Project structure and metrics
+- `validation` - Solution health check
+- `dependency_graph` - Complete dependency analysis  
+- `comprehensive` - Full analysis suite
+
+### 🔗 **Model Integration**
+
+#### Azure OpenAI with Smart Caching
+```csharp
+var azureModel = new AzureOpenAIModel(
+    modelId: "gpt-4.1",
+    endpoint: "https://your-resource.openai.azure.com/",
+    apiKey: apiKey,
+    cache: true // Intelligent response caching
+);
+```
+
+#### OpenAI Direct
+```csharp
+var openAiModel = new OpenAIModel(
+    modelId: "gpt-4o",
+    apiKey: apiKey
+);
+```
+
+## 🎯 Advanced Features
+
+### 🧠 **Memory Management**
+Intelligent conversation history with automatic summarization:
+```csharp
+// Access full conversation context
 foreach (var step in agent.Memory.Steps)
 {
-    if (step is ActionStep actionStep)
+    Console.WriteLine($"Step {step.StepNumber}: {step.ActionOutput}");
+}
+
+// Reset memory when needed
+agent.Memory.Reset();
+```
+
+### ⚡ **Streaming Support**
+Real-time streaming for responsive user experiences:
+```csharp
+await foreach (var chunk in agent.RunStreamAsync(task, cancellationToken))
+{
+    if (chunk is ActionOutput output)
     {
-        Console.WriteLine($"Action: {actionStep.ActionName}");
-        Console.WriteLine($"Result: {actionStep.ActionOutput}");
+        Console.Write(output.GetStringOutput());
     }
 }
 ```
 
-### Tool Validation
+### 🔒 **Enterprise-Grade Error Handling**
+Comprehensive exception hierarchy with contextual logging:
+```csharp
+try 
+{
+    await agent.RunAsync("Complex multi-step task");
+}
+catch (AgentToolExecutionError ex)
+{
+    logger.LogError($"Tool {ex.ToolName} failed: {ex.Message}");
+}
+catch (AgentMaxStepsError ex)
+{
+    logger.LogWarning("Agent reached maximum steps");
+}
+```
 
-Tools are validated automatically with comprehensive error handling:
+## 🏭 Real-World Examples
+
+### 📊 **Enterprise Code Analysis**
+```csharp
+// Analyze your entire solution for architectural insights
+var agent = new ToolCallingAgent([new SolutionAnalysisTool()], model);
+
+var analysis = await agent.RunAsync(@"
+    Analyze the solution at 'C:\MyApp\MyApp.sln' and provide:
+    1. Dependency graph analysis
+    2. Code quality metrics  
+    3. Suggested architectural improvements
+    4. Performance optimization opportunities
+");
+```
+
+### 🔄 **Automated Refactoring Assistant**
+```csharp
+var refactoringAgent = new CodeAgent(
+    tools: [new SolutionAnalysisTool(), new CodeGenerationTool()],
+    model: model
+);
+
+await refactoringAgent.RunAsync(@"
+    Review the CustomerService class and:
+    1. Identify code smells
+    2. Suggest SOLID principle improvements
+    3. Generate refactored code with unit tests
+");
+```
+
+### 🌐 **API Documentation Generator**
+```csharp
+var docAgent = new ToolCallingAgent([
+    new SolutionAnalysisTool(), 
+    new ApiDiscoveryTool(),
+    new DocumentationTool()
+], model);
+
+await docAgent.RunAsync(@"
+    Generate comprehensive API documentation for my ASP.NET Core project:
+    1. Scan all controllers and endpoints
+    2. Extract XML documentation
+    3. Create OpenAPI specification
+    4. Generate markdown documentation
+");
+```
+
+## 🔧 Custom Tool Development
+
+Creating custom tools is straightforward with strong typing:
 
 ```csharp
-// Tools must define input schemas
-public override Dictionary<string, Dictionary<string, object>> Inputs => 
-    new()
+public class DatabaseQueryTool : Tool
+{
+    public override string Name => "database_query";
+    public override string Description => "Execute SQL queries against the database";
+    public override string OutputType => "object";
+
+    public override Dictionary<string, Dictionary<string, object>> Inputs => new()
     {
-        ["required_param"] = new()
+        ["query"] = new()
         {
             ["type"] = "string",
-            ["description"] = "Required parameter"
+            ["description"] = "SQL query to execute"
         },
-        ["optional_param"] = new()
+        ["connection_string"] = new()
         {
-            ["type"] = "integer", 
-            ["optional"] = true
+            ["type"] = "string", 
+            ["description"] = "Database connection string"
         }
     };
-```
 
-## Advanced Features
-
-### Managed Agents
-
-Support for hierarchical agent orchestration:
-
-```csharp
-var managedAgents = new List<MultiStepAgent> { subAgent1, subAgent2 };
-var masterAgent = new ToolCallingAgent(tools, model, managedAgents: managedAgents);
-```
-
-### Python Execution
-
-Execute Python code within the agent workflow:
-
-```csharp
-var pythonExecutor = new LocalPythonExecutor(
-    additionalAuthorizedImports: new[] { "numpy", "pandas" },
-    maxPrintOutputsLength: 1000
-);
-```
-
-### Streaming & Callbacks
-
-Real-time execution monitoring:
-
-```csharp
-var stepCallbacks = new Dictionary<Type, List<Action<MemoryStep, object>>>
-{
-    [typeof(ActionStep)] = new List<Action<MemoryStep, object>>
+    protected override object? Forward(object?[]? args, Dictionary<string, object>? kwargs)
     {
-        (step, result) => Console.WriteLine($"Step completed: {step}")
+        var query = kwargs["query"].ToString();
+        var connectionString = kwargs["connection_string"].ToString();
+        
+        // Execute query using Entity Framework, Dapper, etc.
+        return ExecuteQuery(query, connectionString);
     }
-};
+}
 ```
 
-## Project Structure
+## 📈 Performance & Monitoring
 
-```markdown
-NETAgents/
-├── Core/
-│   ├── MultiStepAgent.cs      # Base agent implementation
-│   ├── ToolCallingAgent.cs    # Tool-calling agent
-│   ├── AgentLogger.cs         # Logging system
-│   ├── Logger.cs              # Pipeline tools
-│   └── LocalPythonExecutor.cs # Python execution
-├── Models/
-│   ├── AgentTypeMapping.cs    # Type system
-│   ├── MessageRole.cs         # Message types
-│   └── ToolCall.cs           # Tool call models
-├── Tools/                     # Tool implementations
-├── Inference/                 # Model inference
-├── Exceptions/                # Custom exceptions
-└── Tests/                     # Unit tests
+### 📊 **Built-in Metrics**
+```csharp
+// Access comprehensive execution metrics
+var stats = agent.Monitor.GetCacheStats();
+Console.WriteLine($"Cache hit rate: {stats.HitRate:P}");
+Console.WriteLine($"Average step duration: {stats.AverageStepDuration:F2}s");
+Console.WriteLine($"Token usage: {stats.TotalTokenUsage.TotalTokens:N0}");
 ```
 
-## Development Guidelines
+### 🎯 **Smart Caching**
+Automatic response caching with configurable TTL:
+```csharp
+var model = new AzureOpenAIModel(modelId, endpoint, apiKey, cache: true);
 
-Following the original `Smolagents` architecture while adapting to C# conventions:
+// Automatic cache cleanup
+model.CleanupExpiredCache();
 
-- **Async/Await Pattern** - All operations are asynchronous
-- **Nullable Reference Types** - Full null safety
-- **Dependency Injection Ready** - Modular design
-- **Comprehensive Testing** - Unit and integration tests
-- **Documentation** - XML documentation for all public APIs
+// Manual cache management
+model.ClearCache();
+```
 
-## Configuration
+## 🚀 Getting Started
 
-### Environment Variables
+### Prerequisites
+- **.NET 9.0** or higher
+- **Azure OpenAI** or **OpenAI API** access
+- **Visual Studio 2022** or **VS Code** with C# extension
+
+### Installation
+```bash
+# Install the main package
+dotnet add package NETAgents
+
+# Add analysis tools (optional)
+dotnet add package NETAgents.Tools.CSStaticAnalysis
+```
+
+### Basic Setup
+```csharp
+using NETAgents.Core;
+using NETAgents.Inference;
+
+// Configure your model
+var model = new AzureOpenAIModel(
+    "gpt-4.1", 
+    Environment.GetEnvironmentVariable("AOAI_ENDPOINT"),
+    Environment.GetEnvironmentVariable("AOAI_API_KEY")
+);
+
+// Create and run your first agent
+var agent = new ToolCallingAgent([new SolutionAnalysisTool()], model);
+var result = await agent.RunAsync("Analyze my C# project structure");
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Here's how to get started:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+### Development Setup
 
 ```bash
-AOAI_ENDPOINT=https://your-resource.openai.azure.com/
-AOAI_API_KEY=your-api-key
+git clone https://github.com/your-username/NETAgents.git
+cd NETAgents
+dotnet restore
+dotnet build
+dotnet test
 ```
-
-### Logging Levels
-
-- `LogLevel.Debug` - Detailed debugging information  
-- `LogLevel.Info` - General information (default)  
-- `LogLevel.Warning` - Warning messages  
-- `LogLevel.Error` - Error messages only  
-
-## Error Handling
-
-The framework provides comprehensive error handling:
-
-- **`AgentToolCallError`** - Tool execution failures
-- **`AgentMaxStepsError`** - Maximum steps exceeded  
-- **`AgentExecutionError`** - General execution errors
-- **`ValidationException`** - Tool argument validation failures
-
-## Performance Considerations
-
-- **Memory Management** - Efficient conversation history handling
-- **Tool Execution** - Parallel tool execution support
-- **Rate Limiting** - Built-in API rate limiting
-- **Caching** - Response caching mechanisms
-
-## Roadmap
-
-- ✅ Core framework implementation
-- ✅ Tool system and validation
-- ✅ Azure OpenAI integration
-- 🔄 Additional model providers
-- 🔄 Advanced tool marketplace
-- 🔄 Web UI dashboard
-- 🔄 Docker containerization
-
----
-
-**Status:** Active Development  
